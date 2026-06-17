@@ -26,7 +26,9 @@ class StatusPage(QWidget):
 
         self.forward_enabled = QCheckBox("启用短信转发（仅纯文本，不含彩信）")
         self.forward_target = QLineEdit()
-        self.forward_target.setPlaceholderText("转发目标号码，如 +8613800138000")
+        self.forward_target.setPlaceholderText("转发目标号码（可选）")
+        self.forward_webhook = QLineEdit()
+        self.forward_webhook.setPlaceholderText("Webhook URL（可选，POST JSON）")
         forward_save = QPushButton("保存转发设置")
         forward_save.clicked.connect(self._save_forward)
 
@@ -34,8 +36,9 @@ class StatusPage(QWidget):
         fb_layout = QVBoxLayout(forward_box)
         fb_layout.addWidget(self.forward_enabled)
         fb_layout.addWidget(self.forward_target)
+        fb_layout.addWidget(self.forward_webhook)
         fb_layout.addWidget(
-            QLabel("收到新短信时，自动以 [HiPi转发] 前缀发送到目标号码。")
+            QLabel("收到新短信时转发到号码和/或 Webhook。号码转发带 [HiPi转发] 前缀。")
         )
         fb_layout.addWidget(forward_save)
 
@@ -61,6 +64,7 @@ class StatusPage(QWidget):
             cfg = self.rpc.call("get_sms_forward")
             self.forward_enabled.setChecked(cfg.get("enabled", False))
             self.forward_target.setText(cfg.get("target", ""))
+            self.forward_webhook.setText(cfg.get("webhook", ""))
         except RpcError:
             pass
 
@@ -71,6 +75,7 @@ class StatusPage(QWidget):
                 {
                     "enabled": self.forward_enabled.isChecked(),
                     "target": self.forward_target.text().strip(),
+                    "webhook": self.forward_webhook.text().strip(),
                 },
             )
             if not result.get("ok"):

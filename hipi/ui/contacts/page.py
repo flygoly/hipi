@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -64,10 +65,20 @@ class ContactsPage(QWidget):
         action_btns.addWidget(dial_btn)
         action_btns.addWidget(sms_btn)
 
+        import_btn = QPushButton("导入 vCard")
+        import_btn.clicked.connect(self._import_vcard)
+        export_btn = QPushButton("导出 vCard")
+        export_btn.clicked.connect(self._export_vcard)
+
+        io_btns = QHBoxLayout()
+        io_btns.addWidget(import_btn)
+        io_btns.addWidget(export_btn)
+
         left = QVBoxLayout()
         left.addWidget(QLabel("联系人"))
         left.addWidget(self.search)
         left.addWidget(self.list)
+        left.addLayout(io_btns)
 
         right = QVBoxLayout()
         right.addWidget(QLabel("详情"))
@@ -163,3 +174,47 @@ class ContactsPage(QWidget):
         number = self.number.text().strip()
         if number:
             self.message_requested.emit(number)
+
+    def _import_vcard(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "导入 vCard", "", "vCard (*.vcf *.vcard);;All Files (*)"
+        )
+        if not path:
+            return
+        try:
+            content = open(path, encoding="utf-8", errors="replace").read()
+            result = self.rpc.call("import_contacts_vcard", {"content": content})
+            if not result.get("ok"):
+                QMessageBox.warning(self, "HiPi", result.get("error", "导入失败"))
+                return
+            QMessageBox.information(
+                self,
+                "HiPi",
+                f"解析 {result.get('total_parsed', 0)} 条，"
+                f"新增 {result.get('imported', 0)} 条，"
+                f"跳过 {result.get('skipped', 0)} 条",
+            )
+            self.refresh()
+        except RpcError as exc:
+            QMessageBox.warning(self, "HiPi", str(exc))
+        except OSError as exc:
+            QMessageBox.warning(self, "HiPi", str(exc))
+
+    def _export_vcard(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出 vCard", "hipi-contacts.vcf", "vCard (*.vcf)"
+        )
+        if not path:
+            return
+        try:
+            result = self.rpc.call("export_contacts_vcard")
+            if not result.get("ok"):
+                QMessageBox.warning(self, "HiPi", "导出失败")
+                return
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(result.get("vcard", ""))
+            QMessageBox.information(self, "HiPi", f"已导出 {result.get('count', 0)} 个联系人")
+        except RpcError as exc:
+            QMessageBox.warning(self, "HiPi", str(exc))
+        except OSError as exc:
+            QMessageBox.warning(self, "HiPi", str(exc))

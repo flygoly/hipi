@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import urllib.error
+import urllib.request
 from typing import Any
 
 from hipi.db.models import Database, Message
@@ -11,8 +14,7 @@ from hipi.util import normalize_number
 
 logger = logging.getLogger(__name__)
 
-# ModemManager MM_SMS_PDU_TYPE — skip non-user-text types
-_PDU_SKIP_TYPES = {3, 4}  # status report, command
+_PDU_SKIP_TYPES = {3, 4}
 
 
 def is_forwardable_sms(props: dict[str, Any], body: str) -> bool:
@@ -26,12 +28,10 @@ def is_forwardable_sms(props: dict[str, Any], body: str) -> bool:
     if pdu_type in _PDU_SKIP_TYPES:
         return False
 
-    # MMS/WAP push often has 8-bit encoding with empty decoded text
     encoding = int(props.get("Encoding", 0))
-    if encoding == 2 and not body.strip():  # 8-bit without text
+    if encoding == 2 and not body.strip():
         return False
 
-    # Very large binary payloads are unlikely to be SMS text
     data = props.get("Data") or []
     if len(data) > 512 and not props.get("Text"):
         return False
@@ -54,12 +54,6 @@ class SmsForwarder:
             return
         if not self._db.is_sms_forward_enabled():
             return
-        target = self._db.get_sms_forward_target()
-        if not target:
-            return
-        target = normalize_number(target)
-        if not target or target == msg.peer:
-            return
         if not is_forwardable_sms(props, msg.body):
             logger.debug("Skip forward for non-text/MMS-like message from %s", msg.peer)
             return
@@ -67,8 +61,41 @@ class SmsForwarder:
         name = self._db.resolve_name(msg.peer)
         sender = f"{name} ({msg.peer})" if name else msg.peer
         text = f"[HiPi转发] 来自 {sender}: {msg.body}"
-        result = sms.send_sms(modem_path, target, text)
-        if result.get("ok"):
-            logger.info("Forwarded SMS from %s to %s", msg.peer, target)
-        else:
-            logger.warning("SMS forward failed: %s", result.get("error"))
+
+        target = self._db.get_sms_forward_target()
+        if target:
+            target = normalize_number(target)
+            if target and target != msg.peer:
+                result = sms.send_sms(modem_path, target, text)
+                if result.get("ok"):
+                    logger.info("Forwarded SMS from %s to %s", msg.peer, target)
+                else:
+                    logger.warning("SMS forward failed: %s", result.get("error"))
+
+        webhook = (self._db.get_sms_forward_webhook() or "").strip()
+        if webhook:
+            self._post_webhook(
+                webhook,
+                {
+                    "event": "inbound_sms",
+                    "from": msg.peer,
+                    "from_name": name,
+                    "body": msg.body,
+                    "timestamp": msg.timestamp,
+                    "message_id": msg.id,
+                },
+            )
+
+    def _post_webhook(self, url: str, payload: dict[str, Any]) -> None:
+        try:
+            data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=data,
+                headers={"Content-Type": "application/json; charset=utf-8"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                logger.info("Webhook %s responded %s", url, resp.status)
+        except urllib.error.URLError as exc:
+            logger.warning("Webhook POST failed: %s", exc)

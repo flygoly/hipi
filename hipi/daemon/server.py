@@ -20,6 +20,7 @@ from hipi.daemon.voice import VoiceService
 from hipi.db.models import Database, Message
 from hipi.status_file import write_status_file
 from hipi.util import normalize_number
+from hipi.vcard import export_vcards, parse_vcard
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,6 +48,7 @@ class HiPiDaemon:
             self.rpc.broadcast_event("new_message", msg.to_dict()),
             self.loop,
         )
+        self._publish_status()
 
     def _on_message_updated(self, msg: Message) -> None:
         asyncio.run_coroutine_threadsafe(
@@ -102,6 +104,8 @@ class HiPiDaemon:
         self.rpc.register("get_sms_forward", self._handle_get_sms_forward)
         self.rpc.register("set_sms_forward", self._handle_set_sms_forward)
         self.rpc.register("get_contact_map", self._handle_get_contact_map)
+        self.rpc.register("import_contacts_vcard", self._handle_import_contacts_vcard)
+        self.rpc.register("export_contacts_vcard", self._handle_export_contacts_vcard)
 
     def _modem_path(self) -> str | None:
         if not self.mm:
@@ -110,13 +114,19 @@ class HiPiDaemon:
 
     def _build_status(self) -> dict[str, Any]:
         path = self._modem_path()
+        unread = self.db.count_unread_messages()
         if not path:
-            return {"modem_present": False, "audio": self.audio.has_voice_audio()}
+            return {
+                "modem_present": False,
+                "audio": self.audio.has_voice_audio(),
+                "unread_sms": unread,
+            }
         status = self.mm.get_modem_status(path)
         return {
             "modem_present": True,
             "modem": status.to_dict(),
             "audio": self.audio.has_voice_audio(),
+            "unread_sms": unread,
         }
 
     def _publish_status(self) -> dict[str, Any]:
@@ -165,6 +175,7 @@ class HiPiDaemon:
         for msg in self.db.list_messages(limit=500, peer=peer):
             if msg.direction == "inbound" and msg.status == "received":
                 self.db.update_message_status(msg.id, "read")
+        self._publish_status()
         return {"ok": True}
 
     def _handle_dial(self, params: dict) -> dict[str, Any]:
@@ -252,13 +263,29 @@ class HiPiDaemon:
     def _handle_set_sms_forward(self, params: dict) -> dict[str, Any]:
         enabled = bool(params.get("enabled", False))
         target = params.get("target", "").strip()
-        if enabled and not target:
-            return {"ok": False, "error": "启用转发时需填写目标号码"}
+        webhook = params.get("webhook", "").strip()
+        if enabled and not target and not webhook:
+            return {"ok": False, "error": "启用转发时需填写目标号码或 Webhook URL"}
         if target:
             target = normalize_number(target)
         self.db.set_sms_forward_enabled(enabled)
         self.db.set_sms_forward_target(target)
+        self.db.set_sms_forward_webhook(webhook)
         return {"ok": True, "config": self.db.get_sms_forward_config()}
+
+    def _handle_import_contacts_vcard(self, params: dict) -> dict[str, Any]:
+        content = params.get("content", "")
+        if not content.strip():
+            return {"ok": False, "error": "vCard 内容为空"}
+        parsed = parse_vcard(content)
+        if not parsed:
+            return {"ok": False, "error": "未解析到有效联系人"}
+        stats = self.db.import_contacts_batch([(c.name, c.number, c.notes) for c in parsed])
+        return {"ok": True, **stats, "total_parsed": len(parsed)}
+
+    def _handle_export_contacts_vcard(self, _params: dict) -> dict[str, Any]:
+        contacts = [c.to_dict() for c in self.db.list_contacts()]
+        return {"ok": True, "vcard": export_vcards(contacts), "count": len(contacts)}
 
     def _handle_list_active_calls(self, _params: dict) -> list[dict]:
         path = self._modem_path()

@@ -167,7 +167,40 @@ class Database:
         return {
             "enabled": self.is_sms_forward_enabled(),
             "target": self.get_sms_forward_target() or "",
+            "webhook": self.get_sms_forward_webhook() or "",
         }
+
+    def get_sms_forward_webhook(self) -> str | None:
+        return self.get_setting("sms_forward_webhook")
+
+    def set_sms_forward_webhook(self, url: str) -> None:
+        self.set_setting("sms_forward_webhook", url)
+
+    def count_unread_messages(self) -> int:
+        row = self._conn.execute(
+            """
+            SELECT COUNT(*) AS c FROM messages
+            WHERE direction = 'inbound' AND status = 'received'
+            """
+        ).fetchone()
+        return int(row["c"]) if row else 0
+
+    def import_contacts_batch(self, entries: list[tuple[str, str, str]]) -> dict[str, int]:
+        imported = 0
+        skipped = 0
+        for name, number, notes in entries:
+            if not name.strip() or not number.strip():
+                skipped += 1
+                continue
+            if self.get_contact_by_number(number):
+                skipped += 1
+                continue
+            try:
+                self.add_contact(name, number, notes)
+                imported += 1
+            except sqlite3.IntegrityError:
+                skipped += 1
+        return {"imported": imported, "skipped": skipped}
 
     # --- Contacts ---
 

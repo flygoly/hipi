@@ -37,7 +37,27 @@ def test_sms_forward_settings():
         assert not db.is_sms_forward_enabled()
         db.set_sms_forward_enabled(True)
         db.set_sms_forward_target("+8613999999999")
+        db.set_sms_forward_webhook("https://example.com/hook")
         cfg = db.get_sms_forward_config()
         assert cfg["enabled"] is True
         assert cfg["target"] == "+8613999999999"
+        assert cfg["webhook"] == "https://example.com/hook"
+        db.close()
+
+
+def test_import_contacts_batch():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Database(Path(tmp) / "test.db")
+        stats = db.import_contacts_batch([("A", "13800138001", ""), ("B", "13800138001", "")])
+        assert stats["imported"] == 1
+        assert stats["skipped"] == 1
+        db.close()
+
+
+def test_count_unread():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Database(Path(tmp) / "test.db")
+        db.add_message("+86111", "hi", "inbound", status="received")
+        db.add_message("+86222", "hi", "inbound", status="read")
+        assert db.count_unread_messages() == 1
         db.close()
