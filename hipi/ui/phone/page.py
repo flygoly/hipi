@@ -92,7 +92,10 @@ class CallHistory(QWidget):
         self.list.clear()
         for call in calls:
             icon = {"inbound": "↓", "outbound": "↑"}.get(call["direction"], "•")
-            text = f"{icon} {call['peer']} — {call['state']} ({call['started_at'][:19]})"
+            peer = call["peer"]
+            name = call.get("name")
+            who = f"{name} ({peer})" if name else peer
+            text = f"{icon} {who} — {call['state']} ({call['started_at'][:19]})"
             self.list.addItem(QListWidgetItem(text))
 
 
@@ -200,6 +203,10 @@ class PhonePage(QWidget):
 
     def refresh(self) -> None:
         self.history.refresh()
+
+    def dial_number(self, number: str) -> None:
+        self.dial_pad.number_label.setText(number)
+        self._dial(number)
 
     def _dial(self, number: str) -> None:
         try:

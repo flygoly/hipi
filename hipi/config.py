@@ -14,6 +14,7 @@ CONFIG_DIR = XDG_CONFIG / APP_NAME
 DATA_DIR = XDG_DATA / APP_NAME
 DB_PATH = DATA_DIR / "hipi.db"
 SOCKET_PATH = XDG_RUNTIME / f"{APP_NAME}.sock"
+STATUS_FILE = XDG_RUNTIME / f"{APP_NAME}-status.json"
 
 DEFAULT_RPC_TIMEOUT = 30.0
 
@@ -21,4 +22,7 @@ DEFAULT_RPC_TIMEOUT = 30.0
 def ensure_dirs() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    XDG_RUNTIME.mkdir(parents=True, exist_ok=True)
+    try:
+        XDG_RUNTIME.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass

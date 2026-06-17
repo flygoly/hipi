@@ -33,22 +33,30 @@ class SmsService:
         db: Database,
         on_message: Callable[[Message], None] | None = None,
         on_message_updated: Callable[[Message], None] | None = None,
+        on_inbound: Callable[[Message, dict[str, Any], str], None] | None = None,
     ) -> None:
         self._mm = mm
         self._db = db
         self._on_message = on_message
         self._on_message_updated = on_message_updated
+        self._on_inbound = on_inbound
         self._watched_sms: set[str] = set()
 
     def sync_from_modem(self, modem_path: str, *, emit_events: bool = False) -> list[Message]:
         imported: list[Message] = []
         for sms_path in self._mm.list_modem_sms_paths(modem_path):
-            msg = self._import_sms(sms_path, emit_event=emit_events)
+            msg = self._import_sms(sms_path, emit_event=emit_events, modem_path=modem_path)
             if msg:
                 imported.append(msg)
         return imported
 
-    def _import_sms(self, sms_path: str, *, emit_event: bool = True) -> Message | None:
+    def _import_sms(
+        self,
+        sms_path: str,
+        *,
+        emit_event: bool = True,
+        modem_path: str | None = None,
+    ) -> Message | None:
         props = self._mm.get_sms_properties(sms_path)
         state = int(props.get("State", 0))
 
@@ -78,6 +86,13 @@ class SmsService:
         self._watch_sms(sms_path)
         if emit_event and self._on_message:
             self._on_message(msg)
+        if (
+            emit_event
+            and direction == "inbound"
+            and self._on_inbound
+            and modem_path
+        ):
+            self._on_inbound(msg, props, modem_path)
         return msg
 
     def _maybe_update_existing(
@@ -139,8 +154,14 @@ class SmsService:
             return "received"
         return "failed" if state == SMS_STATE_UNKNOWN else "received"
 
-    def handle_sms_added(self, sms_path: str) -> Message | None:
-        return self._import_sms(sms_path, emit_event=True)
+    def handle_sms_added(self, sms_path: str, modem_path: str | None = None) -> Message | None:
+        if not modem_path:
+            modem_path = self._mm.get_primary_modem_path() or ""
+        return self._import_sms(
+            sms_path,
+            emit_event=True,
+            modem_path=modem_path or None,
+        )
 
     def send_sms(self, modem_path: str, number: str, text: str) -> dict[str, Any]:
         peer = normalize_number(number)

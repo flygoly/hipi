@@ -6,6 +6,7 @@ from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QMainWindow, QStatusBar, QTabWidget, QVBoxLayout, QWidget
 
 from hipi.daemon.rpc_client import RpcError
+from hipi.ui.contacts.page import ContactsPage
 from hipi.ui.phone.page import PhonePage
 from hipi.ui.rpc_client import RpcEventClient
 from hipi.ui.sms.page import SmsPage
@@ -24,11 +25,16 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.sms_page = SmsPage(rpc)
         self.phone_page = PhonePage(rpc)
+        self.contacts_page = ContactsPage(rpc)
         self.status_page = StatusPage(rpc)
 
         self.tabs.addTab(self.sms_page, "消息")
         self.tabs.addTab(self.phone_page, "电话")
+        self.tabs.addTab(self.contacts_page, "联系人")
         self.tabs.addTab(self.status_page, "状态")
+
+        self.contacts_page.dial_requested.connect(self._dial_contact)
+        self.contacts_page.message_requested.connect(self._message_contact)
 
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -46,6 +52,14 @@ class MainWindow(QMainWindow):
         self.rpc.event_received.connect(self._on_event)
         self.refresh_all()
         self.refresh_modem_status()
+
+    def _dial_contact(self, number: str) -> None:
+        self.tabs.setCurrentWidget(self.phone_page)
+        self.phone_page.dial_number(number)
+
+    def _message_contact(self, number: str) -> None:
+        self.tabs.setCurrentWidget(self.sms_page)
+        self.sms_page.thread.show_peer(number)
 
     def refresh_modem_status(self) -> None:
         try:
@@ -72,6 +86,7 @@ class MainWindow(QMainWindow):
     def refresh_all(self) -> None:
         self.sms_page.refresh()
         self.phone_page.refresh()
+        self.contacts_page.refresh()
         self.status_page.refresh()
 
     def _on_event(self, event: str, payload: dict) -> None:

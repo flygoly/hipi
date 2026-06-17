@@ -1,0 +1,8 @@
+{
+  "uuid": "hipi@hipi",
+  "name": "HiPi Modem Status",
+  "description": "Show Quectel EC801E signal strength in the GNOME top bar",
+  "shell-version": ["46", "47"],
+  "version": 1,
+  "url": "https://github.com/flygoly/hipi"
+}

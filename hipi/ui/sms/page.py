@@ -55,9 +55,12 @@ class ConversationList(QWidget):
             peer = conv["peer"]
             body = conv.get("last_body", "") or ""
             if query and query not in peer.lower() and query not in body.lower():
-                continue
+                name = conv.get("name") or ""
+                if not name or query not in name.lower():
+                    continue
             unread = conv.get("unread", 0)
-            label = peer
+            name = conv.get("name")
+            label = f"{name} ({peer})" if name else peer
             if unread:
                 label = f"{label} ({unread})"
             item = QListWidgetItem(label)
@@ -101,7 +104,12 @@ class MessageThread(QWidget):
 
     def show_peer(self, peer: str) -> None:
         self._peer = peer
-        self.header.setText(peer)
+        try:
+            cmap = self.rpc.call("get_contact_map")
+            name = cmap.get(peer)
+        except RpcError:
+            name = None
+        self.header.setText(f"{name} ({peer})" if name else peer)
         self._load_messages()
         try:
             self.rpc.call("mark_conversation_read", {"peer": peer})

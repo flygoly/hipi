@@ -1,8 +1,17 @@
-"""Modem status panel."""
+"""Modem status panel and SMS forward settings."""
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QGroupBox,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from hipi.daemon.rpc_client import RpcError
 from hipi.ui.rpc_client import RpcEventClient
@@ -14,6 +23,22 @@ class StatusPage(QWidget):
         self.rpc = rpc
         self.info = QTextEdit()
         self.info.setReadOnly(True)
+
+        self.forward_enabled = QCheckBox("启用短信转发（仅纯文本，不含彩信）")
+        self.forward_target = QLineEdit()
+        self.forward_target.setPlaceholderText("转发目标号码，如 +8613800138000")
+        forward_save = QPushButton("保存转发设置")
+        forward_save.clicked.connect(self._save_forward)
+
+        forward_box = QGroupBox("短信转发")
+        fb_layout = QVBoxLayout(forward_box)
+        fb_layout.addWidget(self.forward_enabled)
+        fb_layout.addWidget(self.forward_target)
+        fb_layout.addWidget(
+            QLabel("收到新短信时，自动以 [HiPi转发] 前缀发送到目标号码。")
+        )
+        fb_layout.addWidget(forward_save)
+
         sync_btn = QPushButton("同步模组短信")
         sync_btn.clicked.connect(self._sync)
         audio_btn = QPushButton("配置通话音频")
@@ -27,6 +52,33 @@ class StatusPage(QWidget):
         layout.addWidget(refresh_btn)
         layout.addWidget(sync_btn)
         layout.addWidget(audio_btn)
+        layout.addWidget(forward_box)
+
+        self._load_forward()
+
+    def _load_forward(self) -> None:
+        try:
+            cfg = self.rpc.call("get_sms_forward")
+            self.forward_enabled.setChecked(cfg.get("enabled", False))
+            self.forward_target.setText(cfg.get("target", ""))
+        except RpcError:
+            pass
+
+    def _save_forward(self) -> None:
+        try:
+            result = self.rpc.call(
+                "set_sms_forward",
+                {
+                    "enabled": self.forward_enabled.isChecked(),
+                    "target": self.forward_target.text().strip(),
+                },
+            )
+            if not result.get("ok"):
+                self.info.append(f"\n转发设置失败: {result.get('error')}")
+            else:
+                self.info.append("\n短信转发设置已保存")
+        except RpcError as exc:
+            self.info.append(f"\n转发设置失败: {exc}")
 
     def refresh(self) -> None:
         try:

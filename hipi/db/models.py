@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from hipi.config import DB_PATH, ensure_dirs
+from hipi.util import normalize_number
 
 
 def _utc_now() -> str:
@@ -59,6 +60,24 @@ class CallRecord:
         }
 
 
+@dataclass
+class Contact:
+    id: int
+    name: str
+    number: str
+    notes: str
+    created_at: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "number": self.number,
+            "notes": self.notes,
+            "created_at": self.created_at,
+        }
+
+
 class Database:
     def __init__(self, path: Path | None = None) -> None:
         ensure_dirs()
@@ -99,6 +118,15 @@ class Database:
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS contacts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                number TEXT NOT NULL UNIQUE,
+                notes TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_contacts_number ON contacts(number);
             """
         )
         self._conn.commit()
@@ -120,6 +148,80 @@ class Database:
 
     def mark_onboarding_complete(self) -> None:
         self.set_setting("onboarding_complete", "1")
+
+    # --- SMS forward settings ---
+
+    def is_sms_forward_enabled(self) -> bool:
+        return self.get_setting("sms_forward_enabled") == "1"
+
+    def set_sms_forward_enabled(self, enabled: bool) -> None:
+        self.set_setting("sms_forward_enabled", "1" if enabled else "0")
+
+    def get_sms_forward_target(self) -> str | None:
+        return self.get_setting("sms_forward_target")
+
+    def set_sms_forward_target(self, target: str) -> None:
+        self.set_setting("sms_forward_target", target)
+
+    def get_sms_forward_config(self) -> dict[str, Any]:
+        return {
+            "enabled": self.is_sms_forward_enabled(),
+            "target": self.get_sms_forward_target() or "",
+        }
+
+    # --- Contacts ---
+
+    def add_contact(self, name: str, number: str, notes: str = "") -> Contact:
+        peer = normalize_number(number)
+        created = _utc_now()
+        cur = self._conn.execute(
+            "INSERT INTO contacts(name, number, notes, created_at) VALUES (?, ?, ?, ?)",
+            (name.strip(), peer, notes.strip(), created),
+        )
+        self._conn.commit()
+        return Contact(id=cur.lastrowid, name=name.strip(), number=peer, notes=notes.strip(), created_at=created)
+
+    def update_contact(self, contact_id: int, name: str, number: str, notes: str = "") -> None:
+        peer = normalize_number(number)
+        self._conn.execute(
+            "UPDATE contacts SET name = ?, number = ?, notes = ? WHERE id = ?",
+            (name.strip(), peer, notes.strip(), contact_id),
+        )
+        self._conn.commit()
+
+    def delete_contact(self, contact_id: int) -> None:
+        self._conn.execute("DELETE FROM contacts WHERE id = ?", (contact_id,))
+        self._conn.commit()
+
+    def list_contacts(self, query: str | None = None) -> list[Contact]:
+        if query:
+            q = f"%{query.strip()}%"
+            rows = self._conn.execute(
+                """
+                SELECT * FROM contacts
+                WHERE name LIKE ? OR number LIKE ?
+                ORDER BY name COLLATE NOCASE
+                """,
+                (q, q),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM contacts ORDER BY name COLLATE NOCASE"
+            ).fetchall()
+        return [self._row_to_contact(r) for r in rows]
+
+    def get_contact_by_number(self, number: str) -> Contact | None:
+        peer = normalize_number(number)
+        row = self._conn.execute("SELECT * FROM contacts WHERE number = ?", (peer,)).fetchone()
+        return self._row_to_contact(row) if row else None
+
+    def get_contact_map(self) -> dict[str, str]:
+        rows = self._conn.execute("SELECT number, name FROM contacts").fetchall()
+        return {r["number"]: r["name"] for r in rows}
+
+    def resolve_name(self, number: str) -> str | None:
+        contact = self.get_contact_by_number(number)
+        return contact.name if contact else None
 
     def add_message(
         self,
@@ -294,6 +396,16 @@ class Database:
             started_at=row["started_at"],
             ended_at=row["ended_at"],
             duration_sec=row["duration_sec"],
+        )
+
+    @staticmethod
+    def _row_to_contact(row: sqlite3.Row) -> Contact:
+        return Contact(
+            id=row["id"],
+            name=row["name"],
+            number=row["number"],
+            notes=row["notes"],
+            created_at=row["created_at"],
         )
 
     def close(self) -> None:

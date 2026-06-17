@@ -12,11 +12,14 @@ from gi.repository import GLib
 
 from hipi.config import SOCKET_PATH, ensure_dirs
 from hipi.daemon.audio import AudioRouter
+from hipi.daemon.forward import SmsForwarder
 from hipi.daemon.modem import ModemManagerClient, ModemManagerError
 from hipi.daemon.rpc import RpcServer
 from hipi.daemon.sms import SmsService
 from hipi.daemon.voice import VoiceService
 from hipi.db.models import Database, Message
+from hipi.status_file import write_status_file
+from hipi.util import normalize_number
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,6 +39,7 @@ class HiPiDaemon:
         self._glib_loop = GLib.MainLoop()
         self._sms: SmsService | None = None
         self._voice: VoiceService | None = None
+        self._forwarder = SmsForwarder(self.db)
         self._poll_timer: int | None = None
 
     def _on_message(self, msg: Message) -> None:
@@ -56,6 +60,10 @@ class HiPiDaemon:
             self.loop,
         )
 
+    def _on_inbound_sms(self, msg: Message, props: dict, modem_path: str) -> None:
+        if self._sms:
+            self._forwarder.maybe_forward(msg, props, self._sms, modem_path)
+
     def _init_services(self) -> None:
         if not self.mm:
             self._sms = None
@@ -66,6 +74,7 @@ class HiPiDaemon:
             self.db,
             on_message=self._on_message,
             on_message_updated=self._on_message_updated,
+            on_inbound=self._on_inbound_sms,
         )
         self._voice = VoiceService(self.mm, self.db, on_call_event=self._on_call_event)
 
@@ -86,13 +95,20 @@ class HiPiDaemon:
         self.rpc.register("complete_onboarding", self._handle_complete_onboarding)
         self.rpc.register("setup_call_audio", self._handle_setup_call_audio)
         self.rpc.register("sync_modem", self._handle_sync_modem)
+        self.rpc.register("list_contacts", self._handle_list_contacts)
+        self.rpc.register("add_contact", self._handle_add_contact)
+        self.rpc.register("update_contact", self._handle_update_contact)
+        self.rpc.register("delete_contact", self._handle_delete_contact)
+        self.rpc.register("get_sms_forward", self._handle_get_sms_forward)
+        self.rpc.register("set_sms_forward", self._handle_set_sms_forward)
+        self.rpc.register("get_contact_map", self._handle_get_contact_map)
 
     def _modem_path(self) -> str | None:
         if not self.mm:
             return None
         return self.mm.get_primary_modem_path()
 
-    def _handle_get_status(self, _params: dict) -> dict[str, Any]:
+    def _build_status(self) -> dict[str, Any]:
         path = self._modem_path()
         if not path:
             return {"modem_present": False, "audio": self.audio.has_voice_audio()}
@@ -102,6 +118,14 @@ class HiPiDaemon:
             "modem": status.to_dict(),
             "audio": self.audio.has_voice_audio(),
         }
+
+    def _publish_status(self) -> dict[str, Any]:
+        status = self._build_status()
+        write_status_file(status)
+        return status
+
+    def _handle_get_status(self, _params: dict) -> dict[str, Any]:
+        return self._publish_status()
 
     def _handle_unlock_sim(self, params: dict) -> dict[str, Any]:
         path = self._modem_path()
@@ -128,7 +152,11 @@ class HiPiDaemon:
         return [m.to_dict() for m in self.db.list_messages(limit=limit, peer=peer)]
 
     def _handle_list_conversations(self, _params: dict) -> list[dict]:
-        return self.db.list_conversations()
+        cmap = self.db.get_contact_map()
+        convs = self.db.list_conversations()
+        for conv in convs:
+            conv["name"] = cmap.get(conv["peer"])
+        return convs
 
     def _handle_mark_read(self, params: dict) -> dict[str, bool]:
         peer = params.get("peer")
@@ -173,7 +201,64 @@ class HiPiDaemon:
 
     def _handle_list_calls(self, params: dict) -> list[dict]:
         limit = int(params.get("limit", 50))
-        return [c.to_dict() for c in self.db.list_calls(limit=limit)]
+        cmap = self.db.get_contact_map()
+        records = []
+        for call in self.db.list_calls(limit=limit):
+            data = call.to_dict()
+            data["name"] = cmap.get(call.peer)
+            records.append(data)
+        return records
+
+    def _handle_list_contacts(self, params: dict) -> list[dict]:
+        query = params.get("query")
+        return [c.to_dict() for c in self.db.list_contacts(query=query)]
+
+    def _handle_add_contact(self, params: dict) -> dict[str, Any]:
+        name = params.get("name", "").strip()
+        number = params.get("number", "").strip()
+        if not name or not number:
+            return {"ok": False, "error": "姓名和号码必填"}
+        try:
+            contact = self.db.add_contact(name, number, params.get("notes", ""))
+            return {"ok": True, "contact": contact.to_dict()}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def _handle_update_contact(self, params: dict) -> dict[str, Any]:
+        cid = int(params.get("id", 0))
+        name = params.get("name", "").strip()
+        number = params.get("number", "").strip()
+        if not cid or not name or not number:
+            return {"ok": False, "error": "参数不完整"}
+        try:
+            self.db.update_contact(cid, name, number, params.get("notes", ""))
+            return {"ok": True}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def _handle_delete_contact(self, params: dict) -> dict[str, Any]:
+        cid = int(params.get("id", 0))
+        if not cid:
+            return {"ok": False, "error": "缺少 id"}
+        self.db.delete_contact(cid)
+        return {"ok": True}
+
+    def _handle_get_contact_map(self, _params: dict) -> dict[str, str]:
+        return self.db.get_contact_map()
+
+    def _handle_get_sms_forward(self, _params: dict) -> dict[str, Any]:
+        return self.db.get_sms_forward_config()
+
+    def _handle_set_sms_forward(self, params: dict) -> dict[str, Any]:
+        enabled = bool(params.get("enabled", False))
+        target = params.get("target", "").strip()
+        if enabled and not target:
+            return {"ok": False, "error": "启用转发时需填写目标号码"}
+        if target:
+            target = normalize_number(target)
+        self.db.set_sms_forward_enabled(enabled)
+        self.db.set_sms_forward_target(target)
+        return {"ok": True, "config": self.db.get_sms_forward_config()}
 
     def _handle_list_active_calls(self, _params: dict) -> list[dict]:
         path = self._modem_path()
@@ -211,7 +296,8 @@ class HiPiDaemon:
 
     def _on_sms_added(self, path: str) -> None:
         if self._sms:
-            self._sms.handle_sms_added(path)
+            mp = self._modem_path()
+            self._sms.handle_sms_added(path, mp)
 
     def _on_call_added(self, path: str) -> None:
         if self._voice:
@@ -223,6 +309,7 @@ class HiPiDaemon:
             self._sms.sync_from_modem(path, emit_events=False)
         if path and self._voice:
             self._voice.poll_calls(path)
+        self._publish_status()
         return True
 
     def _setup_mm_signals(self) -> None:
@@ -258,6 +345,7 @@ class HiPiDaemon:
                 logger.warning("Modem enable: %s", exc)
             if self._sms:
                 self._sms.sync_from_modem(path, emit_events=False)
+            self._publish_status()
 
         self.loop.run_until_complete(self._run_async())
 
