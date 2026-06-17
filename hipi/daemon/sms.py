@@ -8,13 +8,22 @@ from typing import Any, Callable
 import dbus
 
 from hipi.daemon.modem import ModemManagerClient, ModemManagerError, SMS_IFACE
+from hipi.daemon.pdu import decode_sms_body
 from hipi.db.models import Database, Message
 from hipi.util import normalize_number
 
 logger = logging.getLogger(__name__)
 
+# ModemManager MM_SMS_STATE_*
+SMS_STATE_UNKNOWN = 0
+SMS_STATE_STORED = 1
+SMS_STATE_RECEIVING = 2
 SMS_STATE_RECEIVED = 3
-SMS_STATE_SENT = 4
+SMS_STATE_SENDING = 4
+SMS_STATE_SENT = 5
+
+INBOUND_IMPORT_STATES = {SMS_STATE_STORED, SMS_STATE_RECEIVED}
+OUTBOUND_IMPORT_STATES = {SMS_STATE_SENT}
 
 
 class SmsService:
@@ -23,32 +32,40 @@ class SmsService:
         mm: ModemManagerClient,
         db: Database,
         on_message: Callable[[Message], None] | None = None,
+        on_message_updated: Callable[[Message], None] | None = None,
     ) -> None:
         self._mm = mm
         self._db = db
         self._on_message = on_message
+        self._on_message_updated = on_message_updated
+        self._watched_sms: set[str] = set()
 
-    def sync_from_modem(self, modem_path: str) -> list[Message]:
+    def sync_from_modem(self, modem_path: str, *, emit_events: bool = False) -> list[Message]:
         imported: list[Message] = []
         for sms_path in self._mm.list_modem_sms_paths(modem_path):
-            msg = self._import_sms(sms_path)
+            msg = self._import_sms(sms_path, emit_event=emit_events)
             if msg:
                 imported.append(msg)
         return imported
 
-    def _import_sms(self, sms_path: str) -> Message | None:
-        if self._db.has_modem_sms(sms_path):
-            return None
+    def _import_sms(self, sms_path: str, *, emit_event: bool = True) -> Message | None:
         props = self._mm.get_sms_properties(sms_path)
         state = int(props.get("State", 0))
-        if state not in (SMS_STATE_RECEIVED, SMS_STATE_SENT):
+
+        if self._db.has_modem_sms(sms_path):
+            self._maybe_update_existing(sms_path, props, state, emit_event=emit_event)
             return None
 
-        body = str(props.get("Text", "") or "")
+        if not self._should_import(state):
+            if state in (SMS_STATE_SENDING, SMS_STATE_RECEIVING):
+                self._watch_sms(sms_path)
+            return None
+
+        body = decode_sms_body(props)
         number = str(props.get("Number", "") or "")
-        direction = "inbound" if state == SMS_STATE_RECEIVED else "outbound"
+        direction = "inbound" if state in INBOUND_IMPORT_STATES else "outbound"
         peer = normalize_number(number)
-        status = "received" if direction == "inbound" else "sent"
+        status = self._status_for_state(state, direction)
 
         msg = self._db.add_message(
             peer=peer,
@@ -58,12 +75,72 @@ class SmsService:
             modem_path=sms_path,
             modem_sms_id=sms_path,
         )
-        if self._on_message:
+        self._watch_sms(sms_path)
+        if emit_event and self._on_message:
             self._on_message(msg)
         return msg
 
+    def _maybe_update_existing(
+        self,
+        sms_path: str,
+        props: dict[str, Any],
+        state: int,
+        *,
+        emit_event: bool,
+    ) -> None:
+        existing = self._db.get_message_by_modem_sms_id(sms_path)
+        if not existing:
+            return
+
+        new_status = self._status_for_state(state, existing.direction)
+        body = decode_sms_body(props) or existing.body
+        changed = existing.status != new_status or (body and body != existing.body)
+        if not changed:
+            return
+
+        self._db.update_message(
+            existing.id,
+            status=new_status,
+            body=body if body else None,
+        )
+        if emit_event and self._on_message_updated:
+            updated = self._db.get_message_by_id(existing.id)
+            if updated:
+                self._on_message_updated(updated)
+
+    def _watch_sms(self, sms_path: str) -> None:
+        if sms_path in self._watched_sms:
+            return
+        self._watched_sms.add(sms_path)
+
+        def on_change(changed: dict[str, Any]) -> None:
+            if "State" not in changed and "Text" not in changed and "Data" not in changed:
+                return
+            props = self._mm.get_sms_properties(sms_path)
+            state = int(props.get("State", 0))
+            if self._db.has_modem_sms(sms_path):
+                self._maybe_update_existing(sms_path, props, state, emit_event=True)
+            else:
+                self._import_sms(sms_path, emit_event=True)
+
+        self._mm.watch_properties(sms_path, SMS_IFACE, on_change)
+
+    @staticmethod
+    def _should_import(state: int) -> bool:
+        return state in INBOUND_IMPORT_STATES or state in OUTBOUND_IMPORT_STATES
+
+    @staticmethod
+    def _status_for_state(state: int, direction: str) -> str:
+        if state == SMS_STATE_SENT:
+            return "sent"
+        if state == SMS_STATE_SENDING:
+            return "sending"
+        if state in INBOUND_IMPORT_STATES:
+            return "received"
+        return "failed" if state == SMS_STATE_UNKNOWN else "received"
+
     def handle_sms_added(self, sms_path: str) -> Message | None:
-        return self._import_sms(sms_path)
+        return self._import_sms(sms_path, emit_event=True)
 
     def send_sms(self, modem_path: str, number: str, text: str) -> dict[str, Any]:
         peer = normalize_number(number)
@@ -93,6 +170,7 @@ class SmsService:
                 modem_path=sms_path,
                 modem_sms_id=sms_path,
             )
+            self._watch_sms(sms_path)
             return {"ok": True, "message": msg.to_dict()}
         except dbus.DBusException as exc:
             logger.exception("Failed to send SMS")

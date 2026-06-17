@@ -276,6 +276,21 @@ class ModemManagerClient:
         voice = self.get_voice_interface(modem_path)
         return [str(p) for p in voice.ListCalls()]
 
+    def watch_properties(self, object_path: str, iface: str, callback) -> None:
+        """Subscribe to PropertiesChanged on a D-Bus object."""
+
+        def handler(interface: str, changed: dict, _invalidated: list) -> None:
+            if interface != iface:
+                return
+            callback({k: _dbus_to_python(v) for k, v in changed.items()})
+
+        self._bus.add_signal_receiver(
+            handler,
+            dbus_interface="org.freedesktop.DBus.Properties",
+            signal_name="PropertiesChanged",
+            path=object_path,
+        )
+
 
 def _dbus_to_python(value: Any) -> Any:
     if isinstance(value, dbus.Byte):

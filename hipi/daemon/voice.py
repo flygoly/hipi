@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 import dbus
@@ -33,8 +34,6 @@ STATE_NAMES = {
     CALL_STATE_TERMINATED: "terminated",
 }
 
-_active_calls: dict[str, int] = {}
-
 
 class VoiceService:
     def __init__(
@@ -46,6 +45,9 @@ class VoiceService:
         self._mm = mm
         self._db = db
         self._on_call_event = on_call_event
+        self._active_calls: dict[str, int] = {}
+        self._active_since: dict[str, datetime] = {}
+        self._watched_calls: set[str] = set()
 
     def dial(self, modem_path: str, number: str) -> dict[str, Any]:
         peer = normalize_number(number)
@@ -54,8 +56,11 @@ class VoiceService:
         voice = self._mm.get_voice_interface(modem_path)
         try:
             call_path = str(voice.CreateCall({"number": peer}))
-            record = self._db.add_call(peer=peer, direction="outbound", state="dialing", modem_call_path=call_path)
-            _active_calls[call_path] = record.id
+            record = self._db.add_call(
+                peer=peer, direction="outbound", state="dialing", modem_call_path=call_path
+            )
+            self._track_call(call_path, record.id)
+            self._watch_call(call_path)
             self._emit({"type": "call_started", "call": record.to_dict(), "path": call_path})
             return {"ok": True, "call": record.to_dict(), "path": call_path}
         except dbus.DBusException as exc:
@@ -106,7 +111,9 @@ class VoiceService:
         direction_val = int(props.get("Direction", 0))
         direction = "inbound" if direction_val == 1 else "outbound"
 
-        if call_path in _active_calls:
+        self._watch_call(call_path)
+
+        if call_path in self._active_calls:
             self._update_call_state(call_path, state)
             return None
 
@@ -116,9 +123,9 @@ class VoiceService:
             state=state,
             modem_call_path=call_path,
         )
-        _active_calls[call_path] = record.id
-        event = {"type": "incoming_call" if state == "ringing-in" else "call_started", "call": record.to_dict(), "path": call_path}
-        self._emit(event)
+        self._track_call(call_path, record.id)
+        event_type = "incoming_call" if state == "ringing-in" else "call_started"
+        self._emit({"type": event_type, "call": record.to_dict(), "path": call_path})
         return record
 
     def poll_calls(self, modem_path: str) -> None:
@@ -126,7 +133,7 @@ class VoiceService:
             props = self._mm.get_call_properties(call_path)
             state_val = int(props.get("State", 0))
             state = STATE_NAMES.get(state_val, "unknown")
-            if call_path in _active_calls:
+            if call_path in self._active_calls:
                 self._update_call_state(call_path, state)
             elif state == CALL_STATE_RINGING_IN:
                 self.handle_call_added(call_path)
@@ -148,17 +155,43 @@ class VoiceService:
             )
         return result
 
+    def _track_call(self, call_path: str, call_id: int) -> None:
+        self._active_calls[call_path] = call_id
+
+    def _watch_call(self, call_path: str) -> None:
+        if call_path in self._watched_calls:
+            return
+        self._watched_calls.add(call_path)
+
+        def on_change(changed: dict[str, Any]) -> None:
+            if "State" not in changed:
+                return
+            state_val = int(changed["State"])
+            state = STATE_NAMES.get(state_val, "unknown")
+            if call_path in self._active_calls:
+                self._update_call_state(call_path, state)
+            elif state == "ringing-in":
+                self.handle_call_added(call_path)
+
+        self._mm.watch_properties(call_path, CALL_IFACE, on_change)
+
     def _update_call_state(self, call_path: str, state: str) -> None:
-        call_id = _active_calls.get(call_path)
+        call_id = self._active_calls.get(call_path)
         if not call_id:
             return
-        from datetime import datetime, timezone
+
+        if state == "active" and call_path not in self._active_since:
+            self._active_since[call_path] = datetime.now(timezone.utc)
 
         ended = None
         duration = None
         if state == "terminated":
             ended = datetime.now(timezone.utc).isoformat()
-            _active_calls.pop(call_path, None)
+            started = self._active_since.pop(call_path, None)
+            if started:
+                duration = int((datetime.now(timezone.utc) - started).total_seconds())
+            self._active_calls.pop(call_path, None)
+
         self._db.update_call(call_id, state=state, ended_at=ended, duration_sec=duration)
         self._emit({"type": "call_state", "path": call_path, "state": state})
 

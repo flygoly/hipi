@@ -21,4 +21,13 @@
       <allow_active>yes</allow_active>
     </defaults>
   </action>
+  <action id="org.freedesktop.ModemManager1.Voice">
+    <description>Place and control voice calls</description>
+    <message>Authentication is required to place voice calls</message>
+    <defaults>
+      <allow_any>yes</allow_any>
+      <allow_inactive>yes</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
 </policyconfig>

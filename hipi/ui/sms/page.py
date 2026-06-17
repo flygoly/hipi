@@ -157,6 +157,6 @@ class SmsPage(QWidget):
             self.thread._load_messages()
 
     def on_event(self, event: str, payload: dict) -> None:
-        if event == "new_message":
+        if event in ("new_message", "message_updated"):
             self.conversations.refresh()
             self.thread.on_new_message(payload)

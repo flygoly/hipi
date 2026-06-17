@@ -154,6 +154,26 @@ class Database:
         self._conn.execute("UPDATE messages SET status = ? WHERE id = ?", (status, message_id))
         self._conn.commit()
 
+    def update_message(self, message_id: int, status: str, body: str | None = None) -> None:
+        if body is not None:
+            self._conn.execute(
+                "UPDATE messages SET status = ?, body = ? WHERE id = ?",
+                (status, body, message_id),
+            )
+        else:
+            self._conn.execute("UPDATE messages SET status = ? WHERE id = ?", (status, message_id))
+        self._conn.commit()
+
+    def get_message_by_id(self, message_id: int) -> Message | None:
+        row = self._conn.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone()
+        return self._row_to_message(row) if row else None
+
+    def get_message_by_modem_sms_id(self, modem_sms_id: str) -> Message | None:
+        row = self._conn.execute(
+            "SELECT * FROM messages WHERE modem_sms_id = ?", (modem_sms_id,)
+        ).fetchone()
+        return self._row_to_message(row) if row else None
+
     def has_modem_sms(self, modem_sms_id: str) -> bool:
         row = self._conn.execute(
             "SELECT 1 FROM messages WHERE modem_sms_id = ?", (modem_sms_id,)

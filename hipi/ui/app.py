@@ -28,7 +28,8 @@ def run_app() -> int:
     rpc.start()
 
     window = MainWindow(rpc)
-    _setup_tray(app, window, rpc)
+    tray = _setup_tray(app, window, rpc)
+    rpc.connection_lost.connect(lambda: _on_daemon_lost(tray, rpc))
 
     if _needs_onboarding(rpc):
         wizard = OnboardingWizard(rpc, window)
@@ -81,9 +82,21 @@ def _needs_onboarding(rpc: RpcEventClient) -> bool:
         return True
 
 
-def _setup_tray(app: QApplication, window: MainWindow, rpc: RpcEventClient) -> None:
+def _on_daemon_lost(tray: QSystemTrayIcon | None, rpc: RpcEventClient) -> None:
+    if tray:
+        tray.showMessage(
+            "HiPi",
+            "与后台服务断开，正在重连…",
+            QSystemTrayIcon.MessageIcon.Warning,
+            4000,
+        )
+    if not rpc._thread or not rpc._thread.is_alive():
+        rpc.start()
+
+
+def _setup_tray(app: QApplication, window: MainWindow, rpc: RpcEventClient) -> QSystemTrayIcon | None:
     if not QSystemTrayIcon.isSystemTrayAvailable():
-        return
+        return None
 
     tray = QSystemTrayIcon(QIcon(), app)
     tray.setToolTip("HiPi")
@@ -105,3 +118,4 @@ def _setup_tray(app: QApplication, window: MainWindow, rpc: RpcEventClient) -> N
         if event in ("new_message", "incoming_call")
         else None
     )
+    return tray

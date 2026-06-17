@@ -97,6 +97,10 @@ class RpcEventClient(QObject):
             return
         if msg.get("type") == "event":
             self.event_received.emit(msg.get("event", ""), msg.get("payload", {}))
+            return
+        # Ignore RPC responses on the event listener socket
+        if "ok" in msg and "method" not in msg:
+            return
 
 
 class DaemonStarter(QThread):

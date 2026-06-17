@@ -18,6 +18,10 @@ class AudioRouter:
 
     def __init__(self) -> None:
         self._modem_card: str | None = None
+        self._saved_sink: str | None = None
+        self._saved_source: str | None = None
+        self._active_sink: str | None = None
+        self._active_source: str | None = None
 
     def detect_modem_alsa_card(self) -> str | None:
         cards_path = Path("/proc/asound/cards")
@@ -39,64 +43,105 @@ class AudioRouter:
         if not card:
             return {
                 "ok": False,
-                "message": "No Quectel ALSA audio device found. Voice may use USB UAC or require EC801E audio variant.",
+                "message": (
+                    "No Quectel ALSA audio device found. "
+                    "Voice may use USB UAC or require EC801E audio variant."
+                ),
             }
 
-        if shutil.which("pw-cli"):
-            return self._setup_pipewire(card)
-        if shutil.which("pactl"):
-            return self._setup_pulse(card)
-        return {"ok": False, "message": "Neither pw-cli nor pactl found"}
+        if not shutil.which("pactl"):
+            return {"ok": False, "message": "pactl not found (install pipewire-pulse or pulseaudio)"}
 
-    def _setup_pipewire(self, card: str) -> dict[str, str | bool]:
+        return self._setup_pactl(card)
+
+    def _setup_pactl(self, card: str) -> dict[str, str | bool]:
         try:
-            subprocess.run(
-                ["pw-cli", "ls", "Node"],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            logger.info("PipeWire available; modem ALSA card %s detected", card)
+            if self._saved_sink is None:
+                self._saved_sink = self._pactl_default("sink")
+            if self._saved_source is None:
+                self._saved_source = self._pactl_default("source")
+
+            source = self._find_device("sources", card)
+            sink = self._find_device("sinks", card)
+
+            if source:
+                subprocess.run(["pactl", "set-default-source", source], check=False, timeout=5)
+                self._active_source = source
+            if sink:
+                subprocess.run(["pactl", "set-default-sink", sink], check=False, timeout=5)
+                self._active_sink = sink
+
+            if not source and not sink:
+                return {
+                    "ok": False,
+                    "card": card,
+                    "message": f"Quectel card {card} found in ALSA but not in PulseAudio/PipeWire.",
+                }
+
+            backend = "pipewire" if shutil.which("pw-cli") else "pulseaudio"
             return {
                 "ok": True,
-                "backend": "pipewire",
+                "backend": backend,
                 "card": card,
-                "message": f"Modem audio card {card} available. Set default I/O in system settings if needed.",
+                "sink": sink or "",
+                "source": source or "",
+                "message": "Default audio I/O switched to modem",
             }
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-            logger.warning("PipeWire setup check failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
-    def _setup_pulse(self, card: str) -> dict[str, str | bool]:
-        try:
-            result = subprocess.run(
-                ["pactl", "list", "sources", "short"],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            for line in result.stdout.splitlines():
-                if f"alsa_card.{card}" in line or "quectel" in line.lower():
-                    source = line.split()[1]
-                    subprocess.run(["pactl", "set-default-source", source], check=False)
-                    break
-            result = subprocess.run(
-                ["pactl", "list", "sinks", "short"],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            for line in result.stdout.splitlines():
-                if f"alsa_card.{card}" in line or "quectel" in line.lower():
-                    sink = line.split()[1]
-                    subprocess.run(["pactl", "set-default-sink", sink], check=False)
-                    break
-            return {"ok": True, "backend": "pulseaudio", "card": card, "message": "Default sink/source updated"}
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-            return {"ok": False, "message": str(exc)}
+    def _find_device(self, kind: str, card: str) -> str | None:
+        result = subprocess.run(
+            ["pactl", "list", kind, "short"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        card_patterns = (f"alsa_card.{card}", f"card_{card}", "quectel", "ec801")
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            name = parts[1]
+            lower = line.lower()
+            if any(p in lower or p in name for p in card_patterns):
+                return name
+        return None
+
+    @staticmethod
+    def _pactl_default(kind: str) -> str | None:
+        result = subprocess.run(
+            ["pactl", "get-default-" + kind],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip() or None
 
     def teardown_call_audio(self) -> None:
-        logger.debug("Call audio teardown (no-op)")
+        if not shutil.which("pactl"):
+            return
+        try:
+            if self._saved_source:
+                subprocess.run(
+                    ["pactl", "set-default-source", self._saved_source],
+                    check=False,
+                    timeout=5,
+                )
+            if self._saved_sink:
+                subprocess.run(
+                    ["pactl", "set-default-sink", self._saved_sink],
+                    check=False,
+                    timeout=5,
+                )
+        except subprocess.TimeoutExpired:
+            logger.warning("Audio teardown timed out")
+        finally:
+            self._saved_sink = None
+            self._saved_source = None
+            self._active_sink = None
+            self._active_source = None
+            logger.debug("Call audio restored to previous defaults")

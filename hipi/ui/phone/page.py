@@ -103,6 +103,7 @@ class IncomingCallDialog(QWidget):
     def __init__(self, call_path: str, number: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.call_path = call_path
+        self.number = number
         self.setWindowTitle("来电")
         self.setWindowFlags(
             Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint
@@ -147,6 +148,12 @@ class ActiveCallBar(QWidget):
         layout.addWidget(hangup)
         self.hide()
 
+    def show_dialing(self, number: str) -> None:
+        self.timer.stop()
+        self._seconds = 0
+        self.label.setText(f"正在拨打: {number}")
+        self.show()
+
     def start(self, number: str) -> None:
         self._seconds = 0
         self.label.setText(f"通话中: {number}")
@@ -171,6 +178,7 @@ class PhonePage(QWidget):
         self.rpc = rpc
         self._incoming: IncomingCallDialog | None = None
         self._active_path: str | None = None
+        self._pending_number: str | None = None
 
         self.dial_pad = DialPad()
         self.history = CallHistory(rpc)
@@ -200,7 +208,8 @@ class PhonePage(QWidget):
                 QMessageBox.warning(self, "拨打失败", result.get("error", ""))
                 return
             self._active_path = result.get("path")
-            self.active_bar.start(number)
+            self._pending_number = number
+            self.active_bar.show_dialing(number)
             self.history.refresh()
         except RpcError as exc:
             QMessageBox.warning(self, "拨打失败", str(exc))
@@ -219,7 +228,9 @@ class PhonePage(QWidget):
             result = self.rpc.call("answer", {"path": call_path})
             if result.get("ok"):
                 self._active_path = call_path
-                self.active_bar.start("来电")
+                if self._incoming:
+                    self._pending_number = self._incoming.number
+                self.active_bar.show_dialing(self._pending_number or "来电")
             else:
                 QMessageBox.warning(self, "接听失败", result.get("error", ""))
         except RpcError as exc:
@@ -248,12 +259,24 @@ class PhonePage(QWidget):
             self._incoming.answered.connect(self._answer)
             self._incoming.rejected.connect(self._reject)
             self._incoming.show()
+        elif event == "call_started":
+            call = payload.get("call", {})
+            self._active_path = payload.get("path")
+            number = call.get("peer") or self._pending_number or "未知号码"
+            self.active_bar.show_dialing(number)
         elif event == "call_state":
             state = payload.get("state")
-            if state == "active" and self._incoming:
-                self._incoming.close()
-                self._incoming = None
+            if state == "active":
+                if self._incoming:
+                    self._incoming.close()
+                    self._incoming = None
+                number = self._pending_number or "通话中"
+                self.active_bar.start(number)
+            elif state in ("ringing-out", "dialing"):
+                if self._pending_number:
+                    self.active_bar.show_dialing(self._pending_number)
             elif state == "terminated":
                 self._active_path = None
+                self._pending_number = None
                 self.active_bar.stop()
                 self.history.refresh()

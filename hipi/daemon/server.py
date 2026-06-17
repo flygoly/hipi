@@ -44,6 +44,12 @@ class HiPiDaemon:
             self.loop,
         )
 
+    def _on_message_updated(self, msg: Message) -> None:
+        asyncio.run_coroutine_threadsafe(
+            self.rpc.broadcast_event("message_updated", msg.to_dict()),
+            self.loop,
+        )
+
     def _on_call_event(self, event: dict[str, Any]) -> None:
         asyncio.run_coroutine_threadsafe(
             self.rpc.broadcast_event(event.get("type", "call_event"), event),
@@ -55,7 +61,12 @@ class HiPiDaemon:
             self._sms = None
             self._voice = None
             return
-        self._sms = SmsService(self.mm, self.db, on_message=self._on_message)
+        self._sms = SmsService(
+            self.mm,
+            self.db,
+            on_message=self._on_message,
+            on_message_updated=self._on_message_updated,
+        )
         self._voice = VoiceService(self.mm, self.db, on_call_event=self._on_call_event)
 
     def _register_handlers(self) -> None:
@@ -156,7 +167,9 @@ class HiPiDaemon:
     def _handle_hangup(self, params: dict) -> dict[str, Any]:
         if not self._voice:
             return {"ok": False, "error": "Voice service unavailable"}
-        return self._voice.hangup(params.get("path"))
+        result = self._voice.hangup(params.get("path"))
+        self.audio.teardown_call_audio()
+        return result
 
     def _handle_list_calls(self, params: dict) -> list[dict]:
         limit = int(params.get("limit", 50))
@@ -182,7 +195,7 @@ class HiPiDaemon:
         path = self._modem_path()
         if not path or not self._sms:
             return {"ok": False, "error": "No modem"}
-        imported = self._sms.sync_from_modem(path)
+        imported = self._sms.sync_from_modem(path, emit_events=False)
         if self._voice:
             self._voice.poll_calls(path)
         return {"ok": True, "imported": len(imported)}
@@ -194,7 +207,7 @@ class HiPiDaemon:
         except Exception as exc:
             logger.warning("Enable modem failed: %s", exc)
         if self._sms:
-            self._sms.sync_from_modem(path)
+            self._sms.sync_from_modem(path, emit_events=False)
 
     def _on_sms_added(self, path: str) -> None:
         if self._sms:
@@ -207,7 +220,7 @@ class HiPiDaemon:
     def _poll_modem(self) -> bool:
         path = self._modem_path()
         if path and self._sms:
-            self._sms.sync_from_modem(path)
+            self._sms.sync_from_modem(path, emit_events=False)
         if path and self._voice:
             self._voice.poll_calls(path)
         return True
@@ -244,7 +257,7 @@ class HiPiDaemon:
             except Exception as exc:
                 logger.warning("Modem enable: %s", exc)
             if self._sms:
-                self._sms.sync_from_modem(path)
+                self._sms.sync_from_modem(path, emit_events=False)
 
         self.loop.run_until_complete(self._run_async())
 
