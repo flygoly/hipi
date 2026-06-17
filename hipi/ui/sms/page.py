@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -25,10 +26,15 @@ class ConversationList(QWidget):
     def __init__(self, rpc: RpcEventClient, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.rpc = rpc
+        self._conversations: list[dict] = []
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("搜索号码或内容…")
+        self.search.textChanged.connect(self._apply_filter)
         self.list = QListWidget()
         self.list.itemClicked.connect(self._on_click)
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("会话"))
+        layout.addWidget(self.search)
         layout.addWidget(self.list)
         self.refresh_btn = QPushButton("刷新")
         self.refresh_btn.clicked.connect(self.refresh)
@@ -36,20 +42,27 @@ class ConversationList(QWidget):
 
     def refresh(self) -> None:
         try:
-            conversations = self.rpc.call("list_conversations")
+            self._conversations = self.rpc.call("list_conversations")
         except RpcError as exc:
             QMessageBox.warning(self, "HiPi", str(exc))
             return
+        self._apply_filter(self.search.text())
+
+    def _apply_filter(self, text: str) -> None:
+        query = text.strip().lower()
         self.list.clear()
-        for conv in conversations:
+        for conv in self._conversations:
+            peer = conv["peer"]
+            body = conv.get("last_body", "") or ""
+            if query and query not in peer.lower() and query not in body.lower():
+                continue
             unread = conv.get("unread", 0)
-            label = conv["peer"]
+            label = peer
             if unread:
                 label = f"{label} ({unread})"
             item = QListWidgetItem(label)
-            item.setData(Qt.ItemDataRole.UserRole, conv["peer"])
-            subtitle = conv.get("last_body", "")[:40]
-            item.setToolTip(subtitle)
+            item.setData(Qt.ItemDataRole.UserRole, peer)
+            item.setToolTip(body[:80])
             self.list.addItem(item)
 
     def _on_click(self, item: QListWidgetItem) -> None:

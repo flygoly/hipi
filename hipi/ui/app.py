@@ -94,6 +94,17 @@ def _on_daemon_lost(tray: QSystemTrayIcon | None, rpc: RpcEventClient) -> None:
         rpc.start()
 
 
+def _update_tray_status(tray: QSystemTrayIcon, status: dict) -> None:
+    if not status.get("modem_present"):
+        tray.setToolTip("HiPi — 无模组")
+        return
+    m = status["modem"]
+    signal_q = m.get("signal_quality", 0)
+    operator = m.get("operator_name") or m.get("operator_code") or "未知"
+    audio = "有音频" if status.get("audio") else "无音频"
+    tray.setToolTip(f"HiPi — {operator} {signal_q}% | {audio}")
+
+
 def _setup_tray(app: QApplication, window: MainWindow, rpc: RpcEventClient) -> QSystemTrayIcon | None:
     if not QSystemTrayIcon.isSystemTrayAvailable():
         return None
@@ -112,6 +123,10 @@ def _setup_tray(app: QApplication, window: MainWindow, rpc: RpcEventClient) -> Q
     tray.setContextMenu(menu)
     tray.activated.connect(lambda reason: window.show() if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
     tray.show()
+
+    window.modem_status_changed.connect(
+        lambda status: _update_tray_status(tray, status)
+    )
 
     rpc.event_received.connect(
         lambda event, _payload: tray.showMessage("HiPi", event, QSystemTrayIcon.MessageIcon.Information, 3000)

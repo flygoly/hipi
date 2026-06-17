@@ -151,6 +151,72 @@ class NetworkPage(QWizardPage):
         return self._registered
 
 
+class AudioPage(QWizardPage):
+    def __init__(self, rpc: RpcEventClient) -> None:
+        super().__init__()
+        self.rpc = rpc
+        self.setTitle("通话音频")
+        self.setSubTitle("检测 EC801E 是否暴露音频设备（语音通话需要）")
+        self.output = QTextEdit()
+        self.output.setReadOnly(True)
+        check_btn = QPushButton("检测音频")
+        check_btn.clicked.connect(self._check)
+        setup_btn = QPushButton("配置音频路由")
+        setup_btn.clicked.connect(self._setup)
+        skip_btn = QPushButton("跳过")
+        skip_btn.clicked.connect(self._skip)
+        row = QHBoxLayout()
+        row.addWidget(check_btn)
+        row.addWidget(setup_btn)
+        row.addWidget(skip_btn)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.output)
+        layout.addLayout(row)
+        self._done = False
+
+    def initializePage(self) -> None:
+        self._check()
+
+    def _check(self) -> None:
+        try:
+            status = self.rpc.call("get_status")
+        except RpcError as exc:
+            self.output.setPlainText(str(exc))
+            return
+        has_audio = status.get("audio", False)
+        voice = status.get("modem", {}).get("voice", False)
+        lines = [
+            f"模组语音能力: {'支持' if voice else '不支持或未注册'}",
+            f"系统音频设备: {'已检测' if has_audio else '未检测'}",
+        ]
+        if not has_audio:
+            lines.append(
+                "\n若仅支持短信，可跳过此步。\n"
+                "若需通话，请确认 EC801E 音频变体，并运行 scripts/quectel-voice-setup.sh"
+            )
+        self.output.setPlainText("\n".join(lines))
+        if has_audio or not voice:
+            self._done = True
+            self.completeChanged.emit()
+
+    def _setup(self) -> None:
+        try:
+            result = self.rpc.call("setup_call_audio")
+            self.output.append(f"\n配置结果: {result}")
+            if result.get("ok"):
+                self._done = True
+                self.completeChanged.emit()
+        except RpcError as exc:
+            self.output.append(f"\n配置失败: {exc}")
+
+    def _skip(self) -> None:
+        self._done = True
+        self.completeChanged.emit()
+
+    def isComplete(self) -> bool:
+        return self._done
+
+
 class TestPage(QWizardPage):
     def __init__(self, rpc: RpcEventClient) -> None:
         super().__init__()
@@ -193,6 +259,7 @@ class OnboardingWizard(QWizard):
         self.addPage(ModemDetectPage(rpc))
         self.addPage(SimUnlockPage(rpc))
         self.addPage(NetworkPage(rpc))
+        self.addPage(AudioPage(rpc))
         self.addPage(TestPage(rpc))
         self.finished.connect(self._on_finished)
 

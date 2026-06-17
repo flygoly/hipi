@@ -56,6 +56,14 @@ if [ "$1" = "configure" ]; then
   for u in $(users); do
     usermod -aG dialout,plugdev "$u" 2>/dev/null || true
   done
+  for home in /home/*; do
+    u=$(basename "$home")
+    id "$u" >/dev/null 2>&1 || continue
+    if [ -d "$home" ]; then
+      su - "$u" -c "systemctl --user daemon-reload" 2>/dev/null || true
+      su - "$u" -c "systemctl --user enable hipi-daemon.service" 2>/dev/null || true
+    fi
+  done
 fi
 POSTINST
 chmod 755 "$PKG_DIR/DEBIAN/postinst"

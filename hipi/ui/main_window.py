@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QMainWindow, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtCore import QTimer, Signal
+from PySide6.QtWidgets import QMainWindow, QStatusBar, QTabWidget, QVBoxLayout, QWidget
 
+from hipi.daemon.rpc_client import RpcError
 from hipi.ui.phone.page import PhonePage
 from hipi.ui.rpc_client import RpcEventClient
 from hipi.ui.sms.page import SmsPage
@@ -11,6 +13,8 @@ from hipi.ui.status_page import StatusPage
 
 
 class MainWindow(QMainWindow):
+    modem_status_changed = Signal(dict)
+
     def __init__(self, rpc: RpcEventClient) -> None:
         super().__init__()
         self.rpc = rpc
@@ -31,8 +35,39 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.tabs)
         self.setCentralWidget(container)
 
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        self.status_bar.showMessage("正在连接模组…")
+
+        self._status_timer = QTimer(self)
+        self._status_timer.timeout.connect(self.refresh_modem_status)
+        self._status_timer.start(15000)
+
         self.rpc.event_received.connect(self._on_event)
         self.refresh_all()
+        self.refresh_modem_status()
+
+    def refresh_modem_status(self) -> None:
+        try:
+            status = self.rpc.call("get_status")
+        except RpcError:
+            self.status_bar.showMessage("后台服务未连接")
+            return
+
+        if not status.get("modem_present"):
+            self.setWindowTitle("HiPi — 无模组")
+            self.status_bar.showMessage("未检测到 4G 模组")
+            self.modem_status_changed.emit(status)
+            return
+
+        m = status["modem"]
+        signal_q = m.get("signal_quality", 0)
+        operator = m.get("operator_name") or m.get("operator_code") or "未知运营商"
+        state = m.get("state", "unknown")
+        title = f"HiPi — {operator} {signal_q}%"
+        self.setWindowTitle(title)
+        self.status_bar.showMessage(f"{operator} | 信号 {signal_q}% | {state}")
+        self.modem_status_changed.emit(status)
 
     def refresh_all(self) -> None:
         self.sms_page.refresh()
@@ -42,6 +77,8 @@ class MainWindow(QMainWindow):
     def _on_event(self, event: str, payload: dict) -> None:
         self.sms_page.on_event(event, payload)
         self.phone_page.on_event(event, payload)
+        if event in ("new_message", "incoming_call"):
+            self.refresh_modem_status()
         if event == "new_message":
             from hipi.ui.notifications import notify
 
