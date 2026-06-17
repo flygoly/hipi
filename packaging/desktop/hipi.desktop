@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=HiPi
+Comment=4G SMS and voice for Quectel EC801E
+Exec=hipi ui
+Icon=phone
+Terminal=false
+Categories=Network;Telephony;
+StartupNotify=true

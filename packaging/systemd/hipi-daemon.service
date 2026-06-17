@@ -1,0 +1,14 @@
+[Unit]
+Description=HiPi 4G daemon (ModemManager bridge)
+After=ModemManager.service
+Wants=ModemManager.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/hipi-daemon
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

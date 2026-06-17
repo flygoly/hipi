@@ -1,0 +1,5 @@
+# Quectel USB modems (EC801E etc.)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="2c7c", GROUP="dialout", MODE="0660"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="2c7c", GROUP="plugdev", MODE="0660"
+KERNEL=="cdc-wdm*", ATTRS{idVendor}=="2c7c", GROUP="dialout", MODE="0660"
+KERNEL=="wwan*", ATTRS{idVendor}=="2c7c", GROUP="dialout", MODE="0660"
