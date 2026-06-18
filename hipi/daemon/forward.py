@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import logging
-import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -14,6 +11,7 @@ from typing import Any
 from hipi.db.models import Database, Message
 from hipi.daemon.sms import SmsService
 from hipi.util import normalize_number
+from hipi.webhook import SIGNATURE_HEADER, TIMESTAMP_HEADER, sign_webhook_payload
 
 logger = logging.getLogger(__name__)
 
@@ -95,14 +93,9 @@ class SmsForwarder:
             headers = {"Content-Type": "application/json; charset=utf-8"}
             secret = (self._db.get_sms_forward_webhook_secret() or "").strip()
             if secret:
-                ts = str(int(time.time()))
-                sig = hmac.new(
-                    secret.encode("utf-8"),
-                    f"{ts}.{body.decode('utf-8')}".encode("utf-8"),
-                    hashlib.sha256,
-                ).hexdigest()
-                headers["X-HiPi-Timestamp"] = ts
-                headers["X-HiPi-Signature"] = f"sha256={sig}"
+                ts, sig = sign_webhook_payload(secret, body)
+                headers[TIMESTAMP_HEADER] = ts
+                headers[SIGNATURE_HEADER] = sig
 
             req = urllib.request.Request(url, data=body, headers=headers, method="POST")
             with urllib.request.urlopen(req, timeout=10) as resp:

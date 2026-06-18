@@ -57,14 +57,17 @@ systemctl --user enable --now hipi-daemon
 ## 诊断
 
 ```bash
-chmod +x scripts/modem-probe.sh scripts/quectel-voice-setup.sh
+chmod +x scripts/modem-probe.sh scripts/quectel-voice-setup.sh scripts/device-verify.sh
 ./scripts/modem-probe.sh
+./scripts/device-verify.sh
 ```
 
 ## 文档
 
 - [硬件说明](docs/hardware.md)
 - [故障排除](docs/troubleshooting.md)
+- [Webhook 转发与验签](docs/webhook.md)
+- [真机验证清单](docs/device-checklist.md)
 
 ## 架构
 

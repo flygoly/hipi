@@ -48,7 +48,7 @@ class StatusPage(QWidget):
         fb_layout.addWidget(
             QLabel(
                 "Webhook 签名头：X-HiPi-Timestamp、X-HiPi-Signature (sha256=…)。"
-                "留空密钥则不签名。"
+                "留空密钥则不签名。验签说明见 docs/webhook.md"
             )
         )
         fb_layout.addWidget(

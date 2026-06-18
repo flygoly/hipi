@@ -56,6 +56,25 @@ sudo usermod -aG dialout,plugdev $USER
 # 重新登录
 ```
 
+## Webhook 转发验签失败
+
+参阅 [Webhook 文档](webhook.md)：使用**原始请求体**验签，检查系统时间同步，确认密钥与 `X-HiPi-Timestamp` / `X-HiPi-Signature` 头（大小写不敏感）。
+
+本地测试：
+
+```bash
+export HIPI_WEBHOOK_SECRET=test-secret
+python3 scripts/webhook-receiver.py --port 8765
+```
+
+## 真机验收
+
+完整清单见 [device-checklist.md](device-checklist.md)。快速预检：
+
+```bash
+./scripts/device-verify.sh
+```
+
 ## Orange Pi Ubuntu 镜像
 
 建议使用官方发布的固定版本镜像进行测试，避免内核/驱动差异导致 QMI 行为不一致。
