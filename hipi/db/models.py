@@ -168,7 +168,14 @@ class Database:
             "enabled": self.is_sms_forward_enabled(),
             "target": self.get_sms_forward_target() or "",
             "webhook": self.get_sms_forward_webhook() or "",
+            "webhook_secret_set": bool(self.get_sms_forward_webhook_secret()),
         }
+
+    def get_sms_forward_webhook_secret(self) -> str | None:
+        return self.get_setting("sms_forward_webhook_secret")
+
+    def set_sms_forward_webhook_secret(self, secret: str) -> None:
+        self.set_setting("sms_forward_webhook_secret", secret)
 
     def get_sms_forward_webhook(self) -> str | None:
         return self.get_setting("sms_forward_webhook")

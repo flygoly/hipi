@@ -5,12 +5,14 @@ from __future__ import annotations
 from PySide6.QtWidgets import (
     QCheckBox,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
     QTextEdit,
     QVBoxLayout,
     QWidget,
+    QFileDialog,
 )
 
 from hipi.daemon.rpc_client import RpcError
@@ -29,6 +31,9 @@ class StatusPage(QWidget):
         self.forward_target.setPlaceholderText("转发目标号码（可选）")
         self.forward_webhook = QLineEdit()
         self.forward_webhook.setPlaceholderText("Webhook URL（可选，POST JSON）")
+        self.forward_secret = QLineEdit()
+        self.forward_secret.setPlaceholderText("Webhook 签名密钥（可选，HMAC-SHA256）")
+        self.forward_secret.setEchoMode(QLineEdit.EchoMode.Password)
         forward_save = QPushButton("保存转发设置")
         forward_save.clicked.connect(self._save_forward)
 
@@ -37,10 +42,26 @@ class StatusPage(QWidget):
         fb_layout.addWidget(self.forward_enabled)
         fb_layout.addWidget(self.forward_target)
         fb_layout.addWidget(self.forward_webhook)
+        fb_layout.addWidget(self.forward_secret)
+        fb_layout.addWidget(
+            QLabel(
+                "Webhook 签名头：X-HiPi-Timestamp、X-HiPi-Signature (sha256=…)。"
+                "留空密钥则不签名。"
+            )
+        )
         fb_layout.addWidget(
             QLabel("收到新短信时转发到号码和/或 Webhook。号码转发带 [HiPi转发] 前缀。")
         )
         fb_layout.addWidget(forward_save)
+
+        export_box = QGroupBox("数据导出")
+        ex_layout = QHBoxLayout(export_box)
+        export_sms = QPushButton("导出短信 CSV")
+        export_sms.clicked.connect(self._export_messages)
+        export_calls = QPushButton("导出通话 CSV")
+        export_calls.clicked.connect(self._export_calls)
+        ex_layout.addWidget(export_sms)
+        ex_layout.addWidget(export_calls)
 
         sync_btn = QPushButton("同步模组短信")
         sync_btn.clicked.connect(self._sync)
@@ -56,6 +77,7 @@ class StatusPage(QWidget):
         layout.addWidget(sync_btn)
         layout.addWidget(audio_btn)
         layout.addWidget(forward_box)
+        layout.addWidget(export_box)
 
         self._load_forward()
 
@@ -65,19 +87,22 @@ class StatusPage(QWidget):
             self.forward_enabled.setChecked(cfg.get("enabled", False))
             self.forward_target.setText(cfg.get("target", ""))
             self.forward_webhook.setText(cfg.get("webhook", ""))
+            if cfg.get("webhook_secret_set"):
+                self.forward_secret.setPlaceholderText("已设置（留空不修改，输入新值覆盖）")
         except RpcError:
             pass
 
     def _save_forward(self) -> None:
         try:
-            result = self.rpc.call(
-                "set_sms_forward",
-                {
-                    "enabled": self.forward_enabled.isChecked(),
-                    "target": self.forward_target.text().strip(),
-                    "webhook": self.forward_webhook.text().strip(),
-                },
-            )
+            params: dict = {
+                "enabled": self.forward_enabled.isChecked(),
+                "target": self.forward_target.text().strip(),
+                "webhook": self.forward_webhook.text().strip(),
+            }
+            secret = self.forward_secret.text()
+            if secret:
+                params["webhook_secret"] = secret
+            result = self.rpc.call("set_sms_forward", params)
             if not result.get("ok"):
                 self.info.append(f"\n转发设置失败: {result.get('error')}")
             else:
@@ -126,3 +151,31 @@ class StatusPage(QWidget):
             self.info.append(f"\n音频: {result}")
         except RpcError as exc:
             self.info.append(f"\n音频配置失败: {exc}")
+
+    def _export_messages(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(self, "导出短信", "hipi-messages.csv", "CSV (*.csv)")
+        if not path:
+            return
+        try:
+            result = self.rpc.call("export_messages_csv")
+            if not result.get("ok"):
+                return
+            with open(path, "w", encoding="utf-8-sig", newline="") as f:
+                f.write(result.get("csv", ""))
+            self.info.append(f"\n短信已导出到 {path}")
+        except (RpcError, OSError) as exc:
+            self.info.append(f"\n导出失败: {exc}")
+
+    def _export_calls(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(self, "导出通话记录", "hipi-calls.csv", "CSV (*.csv)")
+        if not path:
+            return
+        try:
+            result = self.rpc.call("export_calls_csv")
+            if not result.get("ok"):
+                return
+            with open(path, "w", encoding="utf-8-sig", newline="") as f:
+                f.write(result.get("csv", ""))
+            self.info.append(f"\n通话记录已导出到 {path}")
+        except (RpcError, OSError) as exc:
+            self.info.append(f"\n导出失败: {exc}")

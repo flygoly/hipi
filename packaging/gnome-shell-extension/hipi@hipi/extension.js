@@ -6,8 +6,10 @@ import St from 'gi://St';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 const STATUS_BASENAME = 'hipi-status.json';
+const DEFAULT_LAUNCH = 'hipi ui';
 
 const HiPiIndicator = GObject.registerClass(
 class HiPiIndicator extends PanelMenu.Button {
@@ -20,12 +22,34 @@ class HiPiIndicator extends PanelMenu.Button {
         this._label.add_style_class_name(this._styleClass);
 
         this._path = `${GLib.get_user_runtime_dir()}/${STATUS_BASENAME}`;
+        this._launchCmd = DEFAULT_LAUNCH;
+
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        const openItem = new PopupMenu.PopupMenuItem('打开 HiPi');
+        openItem.connect('activate', () => this._launchApp());
+        this.menu.addMenuItem(openItem);
+
+        this.connect('button-press-event', (_actor, event) => {
+            if (event.get_button() === Clutter.BUTTON_PRIMARY) {
+                this._launchApp();
+                return Clutter.EVENT_STOP;
+            }
+            return Clutter.EVENT_PROPAGATE;
+        });
 
         this._timeout = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, () => {
             this._refresh();
             return GLib.SOURCE_CONTINUE;
         });
         this._refresh();
+    }
+
+    _launchApp() {
+        try {
+            GLib.spawn_command_line_async(this._launchCmd);
+        } catch (e) {
+            log(`HiPi launch failed: ${e}`);
+        }
     }
 
     _setStyleClass(className) {
@@ -48,6 +72,8 @@ class HiPiIndicator extends PanelMenu.Button {
             const [, bytes] = GLib.file_get_contents(this._path);
             const text = new TextDecoder().decode(bytes);
             const status = JSON.parse(text);
+            if (status.launch_command)
+                this._launchCmd = status.launch_command;
             if (!status.modem_present) {
                 this._setStyleClass('hipi-label-off');
                 this._label.text = 'HiPi ✕';

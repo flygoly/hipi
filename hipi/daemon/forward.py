@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -88,13 +91,20 @@ class SmsForwarder:
 
     def _post_webhook(self, url: str, payload: dict[str, Any]) -> None:
         try:
-            data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            req = urllib.request.Request(
-                url,
-                data=data,
-                headers={"Content-Type": "application/json; charset=utf-8"},
-                method="POST",
-            )
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            headers = {"Content-Type": "application/json; charset=utf-8"}
+            secret = (self._db.get_sms_forward_webhook_secret() or "").strip()
+            if secret:
+                ts = str(int(time.time()))
+                sig = hmac.new(
+                    secret.encode("utf-8"),
+                    f"{ts}.{body.decode('utf-8')}".encode("utf-8"),
+                    hashlib.sha256,
+                ).hexdigest()
+                headers["X-HiPi-Timestamp"] = ts
+                headers["X-HiPi-Signature"] = f"sha256={sig}"
+
+            req = urllib.request.Request(url, data=body, headers=headers, method="POST")
             with urllib.request.urlopen(req, timeout=10) as resp:
                 logger.info("Webhook %s responded %s", url, resp.status)
         except urllib.error.URLError as exc:
