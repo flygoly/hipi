@@ -24,11 +24,11 @@ def test_webhook_signature_headers():
             resp.__exit__ = lambda *a: None
             return resp
 
-        with patch("urllib.request.urlopen", fake_urlopen):
+        with patch("hipi.daemon.forward.urllib.request.urlopen", fake_urlopen):
             forwarder._post_webhook("https://example.com/hook", {"event": "test"})
 
         req = captured["req"]
-        assert req.has_header("X-HiPi-Signature")
-        assert req.get_header("X-HiPi-Signature", "").startswith("sha256=")
-        assert req.has_header("X-HiPi-Timestamp")
+        assert req.has_header("X-hipi-signature")
+        assert req.get_header("X-hipi-signature", "").startswith("sha256=")
+        assert req.has_header("X-hipi-timestamp")
         db.close()
