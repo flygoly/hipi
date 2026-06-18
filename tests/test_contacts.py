@@ -50,7 +50,22 @@ def test_import_contacts_batch():
         db = Database(Path(tmp) / "test.db")
         stats = db.import_contacts_batch([("A", "13800138001", ""), ("B", "13800138001", "")])
         assert stats["imported"] == 1
+        assert stats["updated"] == 0
         assert stats["skipped"] == 1
+        db.close()
+
+
+def test_import_contacts_merge():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Database(Path(tmp) / "test.db")
+        db.add_contact("旧名", "13800138001", "旧备注")
+        stats = db.import_contacts_batch([("新名", "13800138001", "新备注")], merge=True)
+        assert stats["imported"] == 0
+        assert stats["updated"] == 1
+        assert stats["skipped"] == 0
+        contact = db.get_contact_by_number("13800138001")
+        assert contact and contact.name == "新名"
+        assert contact.notes == "新备注"
         db.close()
 
 

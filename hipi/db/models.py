@@ -192,22 +192,31 @@ class Database:
         ).fetchone()
         return int(row["c"]) if row else 0
 
-    def import_contacts_batch(self, entries: list[tuple[str, str, str]]) -> dict[str, int]:
+    def import_contacts_batch(
+        self, entries: list[tuple[str, str, str]], merge: bool = False
+    ) -> dict[str, int]:
         imported = 0
+        updated = 0
         skipped = 0
         for name, number, notes in entries:
             if not name.strip() or not number.strip():
                 skipped += 1
                 continue
-            if self.get_contact_by_number(number):
-                skipped += 1
+            existing = self.get_contact_by_number(number)
+            if existing:
+                if merge:
+                    new_notes = notes.strip() if notes.strip() else existing.notes
+                    self.update_contact(existing.id, name.strip(), number, new_notes)
+                    updated += 1
+                else:
+                    skipped += 1
                 continue
             try:
                 self.add_contact(name, number, notes)
                 imported += 1
             except sqlite3.IntegrityError:
                 skipped += 1
-        return {"imported": imported, "skipped": skipped}
+        return {"imported": imported, "updated": updated, "skipped": skipped}
 
     # --- Contacts ---
 
@@ -322,20 +331,30 @@ class Database:
         ).fetchone()
         return row is not None
 
-    def list_messages(self, limit: int = 100, peer: str | None = None) -> list[Message]:
+    def list_messages(
+        self,
+        limit: int = 100,
+        peer: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> list[Message]:
+        clauses: list[str] = []
+        params: list[Any] = []
         if peer:
-            rows = self._conn.execute(
-                """
-                SELECT * FROM messages WHERE peer = ?
-                ORDER BY timestamp DESC LIMIT ?
-                """,
-                (peer, limit),
-            ).fetchall()
-        else:
-            rows = self._conn.execute(
-                "SELECT * FROM messages ORDER BY timestamp DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            clauses.append("peer = ?")
+            params.append(peer)
+        if since:
+            clauses.append("timestamp >= ?")
+            params.append(since)
+        if until:
+            clauses.append("timestamp <= ?")
+            params.append(until)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
+        rows = self._conn.execute(
+            f"SELECT * FROM messages{where} ORDER BY timestamp DESC LIMIT ?",
+            params,
+        ).fetchall()
         return [self._row_to_message(r) for r in rows]
 
     def list_conversations(self) -> list[dict[str, Any]]:
@@ -407,10 +426,25 @@ class Database:
         )
         self._conn.commit()
 
-    def list_calls(self, limit: int = 50) -> list[CallRecord]:
+    def list_calls(
+        self,
+        limit: int = 50,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> list[CallRecord]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if since:
+            clauses.append("started_at >= ?")
+            params.append(since)
+        if until:
+            clauses.append("started_at <= ?")
+            params.append(until)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
         rows = self._conn.execute(
-            "SELECT * FROM calls ORDER BY started_at DESC LIMIT ?",
-            (limit,),
+            f"SELECT * FROM calls{where} ORDER BY started_at DESC LIMIT ?",
+            params,
         ).fetchall()
         return [self._row_to_call(r) for r in rows]
 

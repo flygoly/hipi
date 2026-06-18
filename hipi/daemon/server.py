@@ -124,6 +124,7 @@ class HiPiDaemon:
         }
         if not path:
             base["modem_present"] = False
+            base["modem_hint"] = "ModemManager 未发现可用模组"
             base["audio"] = self.audio.has_voice_audio()
             return base
         status = self.mm.get_modem_status(path)
@@ -285,11 +286,21 @@ class HiPiDaemon:
 
     def _handle_export_messages_csv(self, params: dict) -> dict[str, Any]:
         limit = int(params.get("limit", 10000))
-        return {"ok": True, "csv": export_messages_csv(self.db, limit=limit)}
+        since = params.get("since") or None
+        until = params.get("until") or None
+        return {
+            "ok": True,
+            "csv": export_messages_csv(self.db, limit=limit, since=since, until=until),
+        }
 
     def _handle_export_calls_csv(self, params: dict) -> dict[str, Any]:
         limit = int(params.get("limit", 10000))
-        return {"ok": True, "csv": export_calls_csv(self.db, limit=limit)}
+        since = params.get("since") or None
+        until = params.get("until") or None
+        return {
+            "ok": True,
+            "csv": export_calls_csv(self.db, limit=limit, since=since, until=until),
+        }
 
     def _handle_import_contacts_vcard(self, params: dict) -> dict[str, Any]:
         content = params.get("content", "")
@@ -298,7 +309,10 @@ class HiPiDaemon:
         parsed = parse_vcard(content)
         if not parsed:
             return {"ok": False, "error": "未解析到有效联系人"}
-        stats = self.db.import_contacts_batch([(c.name, c.number, c.notes) for c in parsed])
+        stats = self.db.import_contacts_batch(
+            [(c.name, c.number, c.notes) for c in parsed],
+            merge=bool(params.get("merge", True)),
+        )
         return {"ok": True, **stats, "total_parsed": len(parsed)}
 
     def _handle_export_contacts_vcard(self, _params: dict) -> dict[str, Any]:

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import QDate
 from PySide6.QtWidgets import (
     QCheckBox,
+    QDateEdit,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -55,13 +57,31 @@ class StatusPage(QWidget):
         fb_layout.addWidget(forward_save)
 
         export_box = QGroupBox("数据导出")
-        ex_layout = QHBoxLayout(export_box)
+        ex_layout = QVBoxLayout(export_box)
+        self.export_date_filter = QCheckBox("按日期范围导出")
+        date_row = QHBoxLayout()
+        self.export_since = QDateEdit()
+        self.export_since.setCalendarPopup(True)
+        self.export_since.setDisplayFormat("yyyy-MM-dd")
+        self.export_since.setDate(QDate.currentDate().addMonths(-1))
+        self.export_until = QDateEdit()
+        self.export_until.setCalendarPopup(True)
+        self.export_until.setDisplayFormat("yyyy-MM-dd")
+        self.export_until.setDate(QDate.currentDate())
+        date_row.addWidget(QLabel("从"))
+        date_row.addWidget(self.export_since)
+        date_row.addWidget(QLabel("到"))
+        date_row.addWidget(self.export_until)
+        ex_layout.addWidget(self.export_date_filter)
+        ex_layout.addLayout(date_row)
+        btn_row = QHBoxLayout()
         export_sms = QPushButton("导出短信 CSV")
         export_sms.clicked.connect(self._export_messages)
         export_calls = QPushButton("导出通话 CSV")
         export_calls.clicked.connect(self._export_calls)
-        ex_layout.addWidget(export_sms)
-        ex_layout.addWidget(export_calls)
+        btn_row.addWidget(export_sms)
+        btn_row.addWidget(export_calls)
+        ex_layout.addLayout(btn_row)
 
         sync_btn = QPushButton("同步模组短信")
         sync_btn.clicked.connect(self._sync)
@@ -152,12 +172,19 @@ class StatusPage(QWidget):
         except RpcError as exc:
             self.info.append(f"\n音频配置失败: {exc}")
 
+    def _export_params(self) -> dict:
+        params: dict = {}
+        if self.export_date_filter.isChecked():
+            params["since"] = self.export_since.date().toString("yyyy-MM-dd")
+            params["until"] = self.export_until.date().toString("yyyy-MM-dd")
+        return params
+
     def _export_messages(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "导出短信", "hipi-messages.csv", "CSV (*.csv)")
         if not path:
             return
         try:
-            result = self.rpc.call("export_messages_csv")
+            result = self.rpc.call("export_messages_csv", self._export_params())
             if not result.get("ok"):
                 return
             with open(path, "w", encoding="utf-8-sig", newline="") as f:
@@ -171,7 +198,7 @@ class StatusPage(QWidget):
         if not path:
             return
         try:
-            result = self.rpc.call("export_calls_csv")
+            result = self.rpc.call("export_calls_csv", self._export_params())
             if not result.get("ok"):
                 return
             with open(path, "w", encoding="utf-8-sig", newline="") as f:

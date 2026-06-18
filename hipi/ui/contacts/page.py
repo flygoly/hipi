@@ -192,6 +192,7 @@ class ContactsPage(QWidget):
                 "HiPi",
                 f"解析 {result.get('total_parsed', 0)} 条，"
                 f"新增 {result.get('imported', 0)} 条，"
+                f"更新 {result.get('updated', 0)} 条，"
                 f"跳过 {result.get('skipped', 0)} 条",
             )
             self.refresh()
