@@ -41,6 +41,7 @@ cat "$XDG_RUNTIME_DIR/hipi-status.json" | python3 -m json.tool
 ## 短信
 
 - [ ] **发送**：`hipi send-sms <号码> "HiPi测试"` 成功，对方收到
+- [ ] **CLI 拨号/挂断**（可选）：`hipi dial <号码>` → `hipi hangup`
 - [ ] **中文**：发送与接收含中文、标点、数字的短信，UI 显示正常
 - [ ] **接收**：向本机号码发短信，HiPi 会话列表出现新消息，未读角标更新
 - [ ] **搜索**：在消息页按号码或内容搜索能找到记录

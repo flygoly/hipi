@@ -1,5 +1,6 @@
 """Smoke tests for HiPiDaemon RPC handlers (mocked modem)."""
 
+import asyncio
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -19,6 +20,29 @@ def _daemon_with_db(tmp: str) -> HiPiDaemon:
     daemon.mm.get_modem_status.return_value = status
     daemon._init_services()
     return daemon
+
+
+def test_new_message_event_includes_contact_name():
+    with tempfile.TemporaryDirectory() as tmp:
+        daemon = _daemon_with_db(tmp)
+        daemon.db.add_contact("Alice", "+861111")
+        msg = daemon.db.add_message("+861111", "hi", "inbound")
+        captured: list = []
+
+        async def _capture(event, payload):
+            captured.append((event, payload))
+
+        def _run_coro(coro, _loop):
+            asyncio.run(coro)
+            return MagicMock()
+
+        with patch("asyncio.run_coroutine_threadsafe", side_effect=_run_coro):
+            with patch.object(daemon.rpc, "broadcast_event", side_effect=_capture):
+                daemon._on_message(msg)
+
+        assert captured[0][0] == "new_message"
+        assert captured[0][1]["name"] == "Alice"
+        daemon.db.close()
 
 
 def test_mark_read_updates_unread_in_status_file():

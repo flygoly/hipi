@@ -45,8 +45,12 @@ class HiPiDaemon:
         self._poll_timer: int | None = None
 
     def _on_message(self, msg: Message) -> None:
+        payload = msg.to_dict()
+        name = self.db.resolve_name(msg.peer)
+        if name:
+            payload["name"] = name
         asyncio.run_coroutine_threadsafe(
-            self.rpc.broadcast_event("new_message", msg.to_dict()),
+            self.rpc.broadcast_event("new_message", payload),
             self.loop,
         )
         self._publish_status()

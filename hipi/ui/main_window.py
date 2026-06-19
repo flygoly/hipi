@@ -99,7 +99,8 @@ class MainWindow(QMainWindow):
             from hipi.ui.notifications import notify
 
             peer = payload.get("peer", "")
-            notify("新短信", f"{peer}: {payload.get('body', '')[:80]}")
+            label = contact_display_name(peer, payload.get("name"))
+            notify("新短信", f"{label}: {payload.get('body', '')[:80]}")
         elif event == "incoming_call":
             from hipi.ui.notifications import notify
 
