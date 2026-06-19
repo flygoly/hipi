@@ -128,9 +128,4 @@ def _setup_tray(app: QApplication, window: MainWindow, rpc: RpcEventClient) -> Q
         lambda status: _update_tray_status(tray, status)
     )
 
-    rpc.event_received.connect(
-        lambda event, _payload: tray.showMessage("HiPi", event, QSystemTrayIcon.MessageIcon.Information, 3000)
-        if event in ("new_message", "incoming_call")
-        else None
-    )
     return tray

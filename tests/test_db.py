@@ -49,3 +49,13 @@ def test_modem_sms_dedup():
         )
         assert db.has_modem_sms("/org/freedesktop/ModemManager1/SMS/0")
         db.close()
+
+
+def test_modem_call_dedup():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Database(Path(tmp) / "test.db")
+        path = "/org/freedesktop/ModemManager1/Call/0"
+        db.add_call("+861111", "inbound", "ringing-in", modem_call_path=path)
+        assert db.has_modem_call(path)
+        assert db.get_call_by_modem_path(path) is not None
+        db.close()

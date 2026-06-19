@@ -38,3 +38,15 @@ def test_export_messages_date_range():
         assert "new" in csv_text
         assert "old" not in csv_text
         db.close()
+
+
+def test_export_calls_date_range():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Database(Path(tmp) / "test.db")
+        db.add_call("+86111", "outbound", "terminated")
+        # started_at is now; filter to exclude with old range
+        csv_text = export_calls_csv(db, since="2020-01-01", until="2020-12-31")
+        assert "+86111" not in csv_text
+        csv_all = export_calls_csv(db)
+        assert "+86111" in csv_all
+        db.close()

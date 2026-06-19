@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -75,6 +76,8 @@ class ConversationList(QWidget):
 
 
 class MessageThread(QWidget):
+    conversation_read = Signal(str)
+
     def __init__(self, rpc: RpcEventClient, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.rpc = rpc
@@ -113,6 +116,7 @@ class MessageThread(QWidget):
         self._load_messages()
         try:
             self.rpc.call("mark_conversation_read", {"peer": peer})
+            self.conversation_read.emit(peer)
         except RpcError:
             pass
 
@@ -136,6 +140,9 @@ class MessageThread(QWidget):
             arrow = "←" if msg["direction"] == "inbound" else "→"
             lines.append(f"{arrow} [{msg['timestamp'][:19]}] {msg['body']}")
         self.messages.setPlainText("\n".join(lines))
+        cursor = self.messages.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self.messages.setTextCursor(cursor)
 
     def send_message(self) -> None:
         if not self._peer:
@@ -166,6 +173,7 @@ class SmsPage(QWidget):
         self.conversations = ConversationList(rpc)
         self.thread = MessageThread(rpc)
         self.conversations.conversation_selected.connect(self.thread.show_peer)
+        self.thread.conversation_read.connect(lambda _peer: self.conversations.refresh())
 
         layout = QHBoxLayout(self)
         self.conversations.setMaximumWidth(260)

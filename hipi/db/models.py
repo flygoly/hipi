@@ -113,6 +113,8 @@ class Database:
                 modem_call_path TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_calls_started ON calls(started_at);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_calls_modem_path
+                ON calls(modem_call_path) WHERE modem_call_path IS NOT NULL;
 
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
@@ -407,6 +409,18 @@ class Database:
             ended_at=None,
             duration_sec=0,
         )
+
+    def get_call_by_modem_path(self, modem_call_path: str) -> CallRecord | None:
+        row = self._conn.execute(
+            "SELECT * FROM calls WHERE modem_call_path = ?", (modem_call_path,)
+        ).fetchone()
+        return self._row_to_call(row) if row else None
+
+    def has_modem_call(self, modem_call_path: str) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM calls WHERE modem_call_path = ?", (modem_call_path,)
+        ).fetchone()
+        return row is not None
 
     def update_call(
         self,

@@ -56,9 +56,13 @@ class VoiceService:
         voice = self._mm.get_voice_interface(modem_path)
         try:
             call_path = str(voice.CreateCall({"number": peer}))
-            record = self._db.add_call(
-                peer=peer, direction="outbound", state="dialing", modem_call_path=call_path
-            )
+            existing = self._db.get_call_by_modem_path(call_path)
+            if existing:
+                record = existing
+            else:
+                record = self._db.add_call(
+                    peer=peer, direction="outbound", state="dialing", modem_call_path=call_path
+                )
             self._track_call(call_path, record.id)
             self._watch_call(call_path)
             self._emit({"type": "call_started", "call": record.to_dict(), "path": call_path})
@@ -116,6 +120,12 @@ class VoiceService:
         if call_path in self._active_calls:
             self._update_call_state(call_path, state)
             return None
+
+        existing = self._db.get_call_by_modem_path(call_path)
+        if existing:
+            self._track_call(call_path, existing.id)
+            self._update_call_state(call_path, state)
+            return existing
 
         record = self._db.add_call(
             peer=normalize_number(number),
@@ -180,6 +190,12 @@ class VoiceService:
         if not call_id:
             return
 
+        existing = self._db.get_call_by_modem_path(call_path)
+        if existing and existing.state == state and state != "terminated":
+            if state == "active" and call_path not in self._active_since:
+                self._active_since[call_path] = datetime.now(timezone.utc)
+            return
+
         if state == "active" and call_path not in self._active_since:
             self._active_since[call_path] = datetime.now(timezone.utc)
 
@@ -196,5 +212,11 @@ class VoiceService:
         self._emit({"type": "call_state", "path": call_path, "state": state})
 
     def _emit(self, event: dict[str, Any]) -> None:
-        if self._on_call_event:
-            self._on_call_event(event)
+        if not self._on_call_event:
+            return
+        call = event.get("call")
+        if isinstance(call, dict) and call.get("peer"):
+            name = self._db.resolve_name(call["peer"])
+            if name:
+                event = {**event, "call": {**call, "name": name}}
+        self._on_call_event(event)

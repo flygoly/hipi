@@ -140,7 +140,7 @@ class NetworkPage(QWizardPage):
             status = self.rpc.call("get_status")
             state = status.get("modem", {}).get("state", "")
             self.status_label.setText(f"当前状态: {state}")
-            if state in ("registered", "connected"):
+            if state in ("registered", "connected", "enabled"):
                 self._registered = True
                 self.completeChanged.emit()
                 self.timer.stop()

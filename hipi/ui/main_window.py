@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QMainWindow, QStatusBar, QTabWidget, QVBoxLayout, QWidget
 
+from hipi.contacts import contact_display_name
 from hipi.daemon.rpc_client import RpcError
 from hipi.ui.contacts.page import ContactsPage
 from hipi.ui.phone.page import PhonePage
@@ -97,8 +98,12 @@ class MainWindow(QMainWindow):
         if event == "new_message":
             from hipi.ui.notifications import notify
 
-            notify("新短信", f"{payload.get('peer', '')}: {payload.get('body', '')[:80]}")
+            peer = payload.get("peer", "")
+            notify("新短信", f"{peer}: {payload.get('body', '')[:80]}")
         elif event == "incoming_call":
             from hipi.ui.notifications import notify
 
-            notify("来电", payload.get("call", {}).get("peer", "未知号码"), urgency="critical")
+            call = payload.get("call", {})
+            peer = call.get("peer", "未知号码")
+            label = contact_display_name(peer, call.get("name"))
+            notify("来电", label, urgency="critical")

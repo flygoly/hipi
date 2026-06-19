@@ -73,6 +73,7 @@ python3 scripts/webhook-receiver.py --port 8765
 
 ```bash
 ./scripts/device-verify.sh
+./scripts/run-tests.sh
 ```
 
 ## Orange Pi Ubuntu 镜像

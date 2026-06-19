@@ -3,8 +3,9 @@
 在 Orange Pi 6 Plus 上完成 HiPi 安装后，按本清单逐项验证。自动化预检可运行：
 
 ```bash
-chmod +x scripts/device-verify.sh
-./scripts/device-verify.sh
+chmod +x scripts/device-verify.sh scripts/run-tests.sh
+./scripts/run-tests.sh          # 本地单元测试（开发机 / Orange Pi 均可）
+./scripts/device-verify.sh      # 硬件与守护进程预检
 ```
 
 ## 环境准备

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from hipi.contacts import contact_display_name
 from hipi.daemon.rpc_client import RpcError
 from hipi.ui.rpc_client import RpcEventClient
 
@@ -73,10 +74,13 @@ class DialPad(QWidget):
 
 
 class CallHistory(QWidget):
+    redial_requested = Signal(str)
+
     def __init__(self, rpc: RpcEventClient, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.rpc = rpc
         self.list = QListWidget()
+        self.list.itemDoubleClicked.connect(self._on_double_click)
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("通话记录"))
         layout.addWidget(self.list)
@@ -96,22 +100,30 @@ class CallHistory(QWidget):
             name = call.get("name")
             who = f"{name} ({peer})" if name else peer
             text = f"{icon} {who} — {call['state']} ({call['started_at'][:19]})"
-            self.list.addItem(QListWidgetItem(text))
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, peer)
+            self.list.addItem(item)
+
+    def _on_double_click(self, item: QListWidgetItem) -> None:
+        peer = item.data(Qt.ItemDataRole.UserRole)
+        if peer:
+            self.redial_requested.emit(peer)
 
 
 class IncomingCallDialog(QWidget):
     answered = Signal(str)
     rejected = Signal(str)
 
-    def __init__(self, call_path: str, number: str, parent: QWidget | None = None) -> None:
+    def __init__(self, call_path: str, number: str, name: str | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.call_path = call_path
         self.number = number
+        self.name = name
         self.setWindowTitle("来电")
         self.setWindowFlags(
             Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint
         )
-        label = QLabel(f"来电: {number}")
+        label = QLabel(f"来电: {contact_display_name(number, name)}")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         font = label.font()
         font.setPointSize(18)
@@ -188,6 +200,7 @@ class PhonePage(QWidget):
         self.active_bar = ActiveCallBar()
 
         self.dial_pad.dial_requested.connect(self._dial)
+        self.history.redial_requested.connect(self.dial_number)
         self.active_bar.hangup_requested.connect(self._hangup)
 
         left = QVBoxLayout()
@@ -260,9 +273,10 @@ class PhonePage(QWidget):
             call = payload.get("call", {})
             path = payload.get("path", "")
             number = call.get("peer", "未知号码")
+            name = call.get("name")
             if self._incoming:
                 self._incoming.close()
-            self._incoming = IncomingCallDialog(path, number, self.window())
+            self._incoming = IncomingCallDialog(path, number, name, self.window())
             self._incoming.answered.connect(self._answer)
             self._incoming.rejected.connect(self._reject)
             self._incoming.show()

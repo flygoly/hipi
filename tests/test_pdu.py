@@ -22,3 +22,14 @@ def test_decode_ucs2_data():
 
 def test_decode_empty():
     assert decode_sms_body({}) == ""
+
+
+def test_decode_gsm7_data():
+    try:
+        from smspdu import gsm0338
+    except ImportError:
+        return
+    text = "HiPi"
+    raw = gsm0338.Codec().encode(text)[0]
+    body = decode_sms_body({"Text": "", "Data": list(raw), "Encoding": 1})
+    assert body == text

@@ -58,6 +58,8 @@ class HiPiDaemon:
         )
 
     def _on_call_event(self, event: dict[str, Any]) -> None:
+        if event.get("type") == "call_state" and event.get("state") == "terminated":
+            self.audio.teardown_call_audio()
         asyncio.run_coroutine_threadsafe(
             self.rpc.broadcast_event(event.get("type", "call_event"), event),
             self.loop,
