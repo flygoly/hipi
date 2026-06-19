@@ -43,6 +43,24 @@ class HiPiDaemon:
         self._voice: VoiceService | None = None
         self._forwarder = SmsForwarder(self.db)
         self._poll_timer: int | None = None
+        self._mm_retry_timer: int | None = None
+        self._mm_signals_connected = False
+
+    def _ensure_mm(self) -> bool:
+        if self.mm is not None:
+            return True
+        try:
+            self.mm = ModemManagerClient()
+            logger.info("Connected to ModemManager")
+            self._init_services()
+            if not self._mm_signals_connected:
+                self._setup_mm_signals()
+            self._publish_status()
+            return True
+        except ModemManagerError as exc:
+            logger.warning("ModemManager unavailable: %s", exc)
+            self.mm = None
+            return False
 
     def _on_message(self, msg: Message) -> None:
         payload = msg.to_dict()
@@ -352,12 +370,21 @@ class HiPiDaemon:
 
     def _on_modem_added(self, path: str) -> None:
         logger.info("Modem added: %s", path)
+        if self.mm is None:
+            self._ensure_mm()
+        if not self.mm:
+            return
         try:
             self.mm.enable_modem(path)
         except Exception as exc:
             logger.warning("Enable modem failed: %s", exc)
         if self._sms:
             self._sms.sync_from_modem(path, emit_events=False)
+        self._publish_status()
+
+    def _on_modem_removed(self, path: str) -> None:
+        logger.info("Modem removed: %s", path)
+        self._publish_status()
 
     def _on_sms_added(self, path: str) -> None:
         if self._sms:
@@ -369,6 +396,8 @@ class HiPiDaemon:
             self._voice.handle_call_added(path)
 
     def _poll_modem(self) -> bool:
+        if self.mm is None:
+            self._ensure_mm()
         path = self._modem_path()
         if path and self._sms:
             self._sms.sync_from_modem(path, emit_events=False)
@@ -377,30 +406,34 @@ class HiPiDaemon:
         self._publish_status()
         return True
 
+    def _retry_mm(self) -> bool:
+        if self.mm is None:
+            self._ensure_mm()
+        return True
+
     def _setup_mm_signals(self) -> None:
-        if not self.mm:
+        if self._mm_retry_timer is None:
+            self._mm_retry_timer = GLib.timeout_add_seconds(10, self._retry_mm)
+        if not self.mm or self._mm_signals_connected:
             return
         self.mm.on_modem_added(self._on_modem_added)
+        self.mm.on_modem_removed(self._on_modem_removed)
         self.mm.on_sms_added(self._on_sms_added)
         self.mm.on_call_added(self._on_call_added)
-        self._poll_timer = GLib.timeout_add_seconds(30, self._poll_modem)
+        if self._poll_timer is None:
+            self._poll_timer = GLib.timeout_add_seconds(30, self._poll_modem)
+        self._mm_signals_connected = True
 
     async def _run_async(self) -> None:
         await self.rpc.start()
 
     def run(self) -> int:
-        try:
-            self.mm = ModemManagerClient()
-        except ModemManagerError as exc:
-            logger.error("%s", exc)
-            self.mm = None
-
-        self._init_services()
+        self._ensure_mm()
         self._register_handlers()
         self._setup_mm_signals()
 
         path = self._modem_path()
-        if path:
+        if path and self.mm:
             logger.info("Primary modem: %s", path)
             try:
                 status = self.mm.get_modem_status(path)

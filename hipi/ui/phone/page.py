@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QDialog,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -110,7 +111,7 @@ class CallHistory(QWidget):
             self.redial_requested.emit(peer)
 
 
-class IncomingCallDialog(QWidget):
+class IncomingCallDialog(QDialog):
     answered = Signal(str)
     rejected = Signal(str)
 
@@ -121,8 +122,11 @@ class IncomingCallDialog(QWidget):
         self.name = name
         self.setWindowTitle("来电")
         self.setWindowFlags(
-            Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint
+            Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Dialog
+            | Qt.WindowType.WindowCloseButtonHint
         )
+        self.setModal(False)
         label = QLabel(f"来电: {contact_display_name(number, name)}")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         font = label.font()
@@ -143,6 +147,11 @@ class IncomingCallDialog(QWidget):
         layout.addWidget(label)
         layout.addLayout(row)
         self.resize(360, 160)
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        self.raise_()
+        self.activateWindow()
 
 
 class ActiveCallBar(QWidget):
@@ -227,6 +236,14 @@ class PhonePage(QWidget):
             if not result.get("ok"):
                 QMessageBox.warning(self, "拨打失败", result.get("error", ""))
                 return
+            audio = result.get("audio") or {}
+            if audio and not audio.get("ok"):
+                QMessageBox.warning(
+                    self,
+                    "HiPi",
+                    f"通话音频未就绪：{audio.get('message', '未知原因')}\n"
+                    "可在「状态」页配置音频，或运行 scripts/quectel-voice-setup.sh",
+                )
             self._active_path = result.get("path")
             self._pending_number = number
             self.active_bar.show_dialing(number)
@@ -279,6 +296,11 @@ class PhonePage(QWidget):
             self._incoming = IncomingCallDialog(path, number, name, self.window())
             self._incoming.answered.connect(self._answer)
             self._incoming.rejected.connect(self._reject)
+            main = self.window()
+            if main:
+                main.show()
+                main.raise_()
+                main.activateWindow()
             self._incoming.show()
         elif event == "call_started":
             call = payload.get("call", {})

@@ -107,6 +107,7 @@ class ModemManagerClient:
                 "ModemManager not available. Install and start modemmanager."
             ) from exc
         self._modem_added_handlers: list[Any] = []
+        self._modem_removed_handlers: list[Any] = []
         self._sms_added_handlers: list[Any] = []
         self._call_added_handlers: list[Any] = []
 
@@ -243,6 +244,18 @@ class ModemManagerClient:
             path=MM_PATH,
         )
         self._call_added_handlers.append(_handler)
+
+    def on_modem_removed(self, callback) -> None:
+        def _handler(path, interfaces):
+            callback(str(path))
+
+        self._bus.add_signal_receiver(
+            _handler,
+            dbus_interface=MM_IFACE,
+            signal_name="InterfacesRemoved",
+            path=MM_PATH,
+        )
+        self._modem_removed_handlers.append(_handler)
 
     def get_messaging_interface(self, modem_path: str):
         return dbus.Interface(

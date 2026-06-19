@@ -41,7 +41,7 @@ Version: ${VERSION}
 Section: net
 Priority: optional
 Architecture: arm64
-Depends: python3 (>= 3.11), python3-gi, python3-dbus, modemmanager, network-manager, pipewire, libqmi-utils
+Depends: python3 (>= 3.11), python3-gi, python3-dbus, modemmanager, network-manager, pipewire, pipewire-pulse | pulseaudio-utils, libqmi-utils
 Maintainer: HiPi Contributors <hipi@localhost>
 Description: HiPi 4G SMS and voice desktop app
  Out-of-the-box SMS and voice for Quectel EC801E on Orange Pi Ubuntu Desktop.
@@ -61,7 +61,7 @@ if [ "$1" = "configure" ]; then
     id "$u" >/dev/null 2>&1 || continue
     if [ -d "$home" ]; then
       su - "$u" -c "systemctl --user daemon-reload" 2>/dev/null || true
-      su - "$u" -c "systemctl --user enable hipi-daemon.service" 2>/dev/null || true
+      su - "$u" -c "systemctl --user enable --now hipi-daemon.service" 2>/dev/null || true
     fi
   done
 fi

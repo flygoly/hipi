@@ -1,5 +1,7 @@
 # EC801E 真机验证清单
 
+完整上机顺序见 [ec801e-one-shot.md](ec801e-one-shot.md)。
+
 在 Orange Pi 6 Plus 上完成 HiPi 安装后，按本清单逐项验证。自动化预检可运行：
 
 ```bash

@@ -2,6 +2,13 @@
 # HiPi EC801E on-device verification preflight checks
 set -euo pipefail
 
+SMOKE=false
+for arg in "$@"; do
+  if [[ "$arg" == "--smoke" ]]; then
+    SMOKE=true
+  fi
+done
+
 PASS=0
 WARN=0
 FAIL=0
@@ -105,6 +112,26 @@ cat <<'EOF'
   - Outbound and inbound voice call with audio
   - Contact name display and optional webhook forward
 EOF
+
+if $SMOKE; then
+  section "Smoke tests (optional)"
+  if ! command -v hipi >/dev/null; then
+    fail "hipi CLI not found for smoke tests"
+  elif [[ -z "${HIPI_SMOKE_NUMBER:-}" ]]; then
+    warn "Set HIPI_SMOKE_NUMBER to run SMS smoke test"
+  else
+    if hipi send-sms "$HIPI_SMOKE_NUMBER" "HiPi smoke $(date +%H:%M:%S)" 2>/dev/null | grep -q '"ok": true'; then
+      ok "hipi send-sms succeeded"
+    else
+      fail "hipi send-sms failed (see journalctl --user -u hipi-daemon)"
+    fi
+    if hipi status 2>/dev/null | grep -q '"modem_present": true'; then
+      ok "hipi status reports modem_present"
+    else
+      fail "hipi status missing modem"
+    fi
+  fi
+fi
 
 section "Summary"
 echo "  Passed: $PASS  Warnings: $WARN  Failed: $FAIL"
