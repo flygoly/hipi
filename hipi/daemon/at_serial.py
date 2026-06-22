@@ -79,6 +79,10 @@ class AtSerialClient:
                     self._port = candidate
                     logger.info("AT port: %s", candidate)
                     return candidate
+        hinted = self._read_config_port()
+        if hinted and self._probe(hinted):
+            self._port = hinted
+            return hinted
         self._port = None
         return None
 

@@ -149,6 +149,17 @@ class ModemManagerClient:
                 preferred = path
         return preferred
 
+    def get_primary_at_port(self, modem_path: str) -> str | None:
+        try:
+            modem = self._bus.get_object(MM_SERVICE, modem_path)
+            props = dbus.Interface(modem, "org.freedesktop.DBus.Properties")
+            port = str(props.Get(MODEM_IFACE, "PrimaryPort") or "").strip()
+            if not port:
+                return None
+            return port if port.startswith("/dev/") else f"/dev/{port}"
+        except dbus.DBusException:
+            return None
+
     def get_modem_status(self, modem_path: str) -> ModemStatus:
         modem = self._bus.get_object(MM_SERVICE, modem_path)
         props = dbus.Interface(modem, "org.freedesktop.DBus.Properties")

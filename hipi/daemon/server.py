@@ -10,13 +10,13 @@ from typing import Any
 
 from gi.repository import GLib
 
-from hipi.config import SOCKET_PATH, ensure_dirs
+from hipi.config import CONFIG_DIR, SOCKET_PATH, ensure_dirs
 from hipi.daemon.audio import AudioRouter
 from hipi.daemon.forward import SmsForwarder
 from hipi.daemon.at_serial import AT_MODEM_PREFIX, AtSerialClient, parse_at_modem_path
 from hipi.daemon.modem import ModemManagerClient, ModemManagerError
 from hipi.daemon.rpc import RpcServer
-from hipi.daemon.sms import BACKEND_AT, SmsService
+from hipi.daemon.sms import BACKEND_AT, BACKEND_NONE, SmsService
 from hipi.daemon.voice import VoiceService
 from hipi.db.models import Database, Message
 from hipi.export import export_calls_csv, export_messages_csv
@@ -172,6 +172,14 @@ class HiPiDaemon:
         self.rpc.register("export_messages_csv", self._handle_export_messages_csv)
         self.rpc.register("export_calls_csv", self._handle_export_calls_csv)
 
+    def _cache_at_port(self, port: str) -> None:
+        if not isinstance(port, str) or not port.startswith("/dev/"):
+            return
+        try:
+            (CONFIG_DIR / "at_port").write_text(port + "\n", encoding="utf-8")
+        except OSError as exc:
+            logger.debug("Could not cache AT port: %s", exc)
+
     def _modem_path(self) -> str | None:
         if self.mm:
             try:
@@ -266,6 +274,12 @@ class HiPiDaemon:
             modem_dict["messaging"] = True
         modem_dict["sms_backend"] = sms_backend
         modem_dict["voice_backend"] = voice_backend
+        at_port = self._sms.at_port() if self._sms else None
+        if not at_port and self.mm:
+            mm_port = self.mm.get_primary_at_port(path)
+            if isinstance(mm_port, str) and mm_port.startswith("/dev/"):
+                at_port = mm_port
+                self._cache_at_port(at_port)
         base.update(
             {
                 "modem_present": True,
@@ -273,9 +287,14 @@ class HiPiDaemon:
                 "audio": self.audio.has_voice_audio(),
                 "sms_backend": sms_backend,
                 "voice_backend": voice_backend,
-                "at_port": self._sms.at_port() if self._sms else None,
+                "at_port": at_port,
             }
         )
+        if sms_backend == BACKEND_NONE and at_port:
+            base["modem_hint"] = (
+                f"已识别 AT 口 {at_port}，但当前进程无串口权限。"
+                "请注销并重新登录（dialout 组），然后 systemctl --user restart hipi-daemon"
+            )
         return base
 
     def _publish_status(self) -> dict[str, Any]:

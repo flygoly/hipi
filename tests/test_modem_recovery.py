@@ -23,6 +23,7 @@ def _mock_mm() -> MagicMock:
     mock_mm.get_modem_status.return_value = status
     mock_mm.has_messaging.return_value = False
     mock_mm.has_voice.return_value = False
+    mock_mm.get_primary_at_port.return_value = None
     return mock_mm
 
 
@@ -54,7 +55,8 @@ def test_ensure_mm_returns_false_when_mm_unavailable():
     with tempfile.TemporaryDirectory() as tmp:
         daemon = _fresh_daemon(tmp)
         with patch("hipi.daemon.server.ModemManagerClient", side_effect=ModemManagerError("down")):
-            assert daemon._ensure_mm() is False
+            with patch.object(daemon._at, "find_port", return_value=None):
+                assert daemon._ensure_mm() is False
         assert daemon.mm is None
         daemon.db.close()
 
