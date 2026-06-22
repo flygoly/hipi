@@ -112,7 +112,16 @@ class ModemManagerClient:
         self._call_added_handlers: list[Any] = []
 
     def list_modem_paths(self) -> list[str]:
-        modems = self._mm_iface.GetManagedObjects()
+        try:
+            modems = self._mm_iface.GetManagedObjects()
+        except dbus.DBusException as exc:
+            if "AccessDenied" in str(exc) or "Unauthorized" in str(exc):
+                raise ModemManagerError(
+                    "ModemManager D-Bus access denied. Run: "
+                    "sudo ./scripts/install-system-policy.sh "
+                    "then log out and back in."
+                ) from exc
+            raise ModemManagerError(f"ModemManager error: {exc}") from exc
         return [
             path
             for path, ifaces in modems.items()

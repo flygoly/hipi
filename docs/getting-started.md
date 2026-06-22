@@ -98,6 +98,8 @@ sudo apt install -y python3-pip python3-venv python3-gi python3-dbus \
   libqmi-utils gir1.2-glib-2.0
 
 pip install -e ".[dev]"
+sudo ./scripts/install-system-policy.sh   # D-Bus / Polkit 权限，必做
+# 注销重登后加入 dialout/plugdev
 systemctl --user enable --now hipi-daemon
 ```
 

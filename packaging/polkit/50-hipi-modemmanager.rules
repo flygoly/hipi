@@ -1,0 +1,14 @@
+// Allow local active users in dialout/plugdev to use ModemManager without prompts.
+// Needed for hipi-daemon (python-dbus does not negotiate Polkit like mmcli/libmm-glib).
+polkit.addRule(function(action, subject) {
+    if (action.id.indexOf("org.freedesktop.ModemManager1.") !== 0) {
+        return polkit.Result.NOT_HANDLED;
+    }
+    if (!subject.local || !subject.active) {
+        return polkit.Result.NOT_HANDLED;
+    }
+    if (subject.isInGroup("dialout") || subject.isInGroup("plugdev")) {
+        return polkit.Result.YES;
+    }
+    return polkit.Result.NOT_HANDLED;
+});

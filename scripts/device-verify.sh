@@ -100,6 +100,18 @@ else
   warn "No Quectel ALSA card — voice may need quectel-voice-setup.sh"
 fi
 
+section "System policy (D-Bus / Polkit)"
+if [[ -f /etc/dbus-1/system.d/hipi-modemmanager.conf ]]; then
+  ok "D-Bus policy installed"
+else
+  warn "Missing /etc/dbus-1/system.d/hipi-modemmanager.conf — run: sudo ./scripts/install-system-policy.sh"
+fi
+if [[ -f /etc/polkit-1/rules.d/50-hipi-modemmanager.rules ]]; then
+  ok "Polkit rules installed"
+else
+  warn "Missing Polkit rules — run: sudo ./scripts/install-system-policy.sh"
+fi
+
 section "User groups"
 if groups | grep -qw dialout && groups | grep -qw plugdev; then
   ok "User in dialout and plugdev"

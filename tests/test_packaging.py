@@ -15,6 +15,13 @@ def test_build_deb_declares_audio_deps():
     assert "enable --now hipi-daemon" in text
 
 
+def test_build_deb_ships_system_policy():
+    text = Path("packaging/debian/build-deb.sh").read_text(encoding="utf-8")
+    assert "hipi-modemmanager.conf" in text
+    assert "50-hipi-modemmanager.rules" in text
+    assert "systemctl reload dbus" in text
+
+
 def test_build_deb_ships_icon_and_extension():
     text = Path("packaging/debian/build-deb.sh").read_text(encoding="utf-8")
     assert "hipi.svg" in text

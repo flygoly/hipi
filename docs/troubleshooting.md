@@ -48,6 +48,27 @@ hipi status
 
 ## 权限问题
 
+### D-Bus AccessDenied（hipi-daemon 崩溃或 hipi status 无模组）
+
+开发安装（`pip install -e`）**不会**自动配置 ModemManager 的 D-Bus / Polkit 权限。若日志出现：
+
+```
+org.freedesktop.DBus.Error.AccessDenied: ... GetManagedObjects
+```
+
+执行：
+
+```bash
+sudo ./scripts/install-system-policy.sh
+# 注销并重新登录
+systemctl --user restart hipi-daemon
+hipi status
+```
+
+`.deb` 安装已包含策略文件；若仍报错，可再运行上述脚本。
+
+### dialout / plugdev 组
+
 确保用户在 `dialout` 和 `plugdev` 组：
 
 ```bash

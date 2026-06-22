@@ -25,6 +25,9 @@ fi
 echo "==> Installing package"
 sudo dpkg -i "$DEB" || sudo apt install -f -y
 
+echo "==> Installing ModemManager system policy (D-Bus / Polkit)"
+sudo "$ROOT/scripts/install-system-policy.sh"
+
 echo ""
 echo "HiPi ${VERSION} installed."
 echo "  1. Log out and log back in (dialout/plugdev group)"

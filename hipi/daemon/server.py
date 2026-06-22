@@ -45,6 +45,7 @@ class HiPiDaemon:
         self._poll_timer: int | None = None
         self._mm_retry_timer: int | None = None
         self._mm_signals_connected = False
+        self._modem_access_error: str | None = None
 
     def _ensure_mm(self) -> bool:
         if self.mm is not None:
@@ -137,7 +138,12 @@ class HiPiDaemon:
     def _modem_path(self) -> str | None:
         if not self.mm:
             return None
-        return self.mm.get_primary_modem_path()
+        try:
+            return self.mm.get_primary_modem_path()
+        except ModemManagerError as exc:
+            self._modem_access_error = str(exc)
+            logger.warning("%s", exc)
+            return None
 
     def _build_status(self) -> dict[str, Any]:
         path = self._modem_path()
@@ -148,9 +154,10 @@ class HiPiDaemon:
         }
         if not path:
             base["modem_present"] = False
-            base["modem_hint"] = "ModemManager 未发现可用模组"
+            base["modem_hint"] = self._modem_access_error or "ModemManager 未发现可用模组"
             base["audio"] = self.audio.has_voice_audio()
             return base
+        self._modem_access_error = None
         status = self.mm.get_modem_status(path)
         base.update(
             {

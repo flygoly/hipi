@@ -19,6 +19,7 @@ mkdir -p "$PKG_DIR/usr/share/icons/hicolor/scalable/apps"
 mkdir -p "$PKG_DIR/usr/share/hipi/gnome-shell-extension"
 mkdir -p "$PKG_DIR/usr/share/hipi/scripts"
 mkdir -p "$PKG_DIR/lib/udev/rules.d" "$PKG_DIR/usr/lib/systemd/user"
+mkdir -p "$PKG_DIR/etc/dbus-1/system.d" "$PKG_DIR/etc/polkit-1/rules.d"
 
 cd "$ROOT"
 python3 -m pip install . --target "$PKG_DIR/usr/lib/hipi" --upgrade 2>/dev/null || \
@@ -45,6 +46,8 @@ cp -a packaging/gnome-shell-extension/hipi@hipi "$PKG_DIR/usr/share/hipi/gnome-s
 cp packaging/scripts/install-gnome-extension.sh "$PKG_DIR/usr/share/hipi/scripts/"
 chmod 755 "$PKG_DIR/usr/share/hipi/scripts/install-gnome-extension.sh"
 cp packaging/polkit/com.hipi.ModemManager.policy "$PKG_DIR/usr/share/polkit-1/actions/"
+cp packaging/polkit/50-hipi-modemmanager.rules "$PKG_DIR/etc/polkit-1/rules.d/"
+cp packaging/dbus/hipi-modemmanager.conf "$PKG_DIR/etc/dbus-1/system.d/"
 cp packaging/udev/99-hipi-quectel.rules "$PKG_DIR/lib/udev/rules.d/"
 cp packaging/systemd/hipi-daemon.service "$PKG_DIR/usr/lib/systemd/user/"
 
@@ -66,6 +69,7 @@ set -e
 if [ "$1" = "configure" ]; then
   udevadm control --reload-rules 2>/dev/null || true
   udevadm trigger 2>/dev/null || true
+  systemctl reload dbus 2>/dev/null || systemctl restart dbus 2>/dev/null || true
   for u in $(users); do
     usermod -aG dialout,plugdev "$u" 2>/dev/null || true
   done
