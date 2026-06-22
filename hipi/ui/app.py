@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtGui import QAction, QIcon
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from hipi.config import ensure_dirs
 from hipi.daemon.rpc_client import RpcError
+from hipi.ui.icon import app_icon
 from hipi.ui.main_window import MainWindow
 from hipi.ui.rpc_client import DaemonStarter, RpcEventClient
 from hipi.ui.setup.wizard import OnboardingWizard
@@ -18,6 +19,7 @@ def run_app() -> int:
     ensure_dirs()
     app = QApplication(sys.argv)
     app.setApplicationName("HiPi")
+    app.setWindowIcon(app_icon())
     app.setQuitOnLastWindowClosed(False)
 
     rpc = RpcEventClient()
@@ -109,7 +111,7 @@ def _setup_tray(app: QApplication, window: MainWindow, rpc: RpcEventClient) -> Q
     if not QSystemTrayIcon.isSystemTrayAvailable():
         return None
 
-    tray = QSystemTrayIcon(QIcon(), app)
+    tray = QSystemTrayIcon(app_icon(), app)
     tray.setToolTip("HiPi")
 
     menu = QMenu()

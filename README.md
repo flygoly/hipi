@@ -21,7 +21,7 @@ Orange Pi Ubuntu Desktop 上的 4G 短信与通话桌面应用，优先支持 **
 
 ```bash
 sudo apt install python3-gi python3-dbus modemmanager network-manager pipewire \
-  libqmi-utils gir1.2-glib-2.0
+  pipewire-pulse libqmi-utils gir1.2-glib-2.0
 
 pip install -e ".[dev]"
 
@@ -39,6 +39,12 @@ hipi status
 hipi unlock <PIN>
 hipi send-sms 13800138000 "你好"
 hipi list-messages
+hipi dial 13800138000
+hipi hangup
+hipi sync
+hipi list-calls
+hipi list-contacts
+hipi setup-audio
 ```
 
 ## 打包安装（开箱即用）
@@ -57,7 +63,8 @@ systemctl --user enable --now hipi-daemon
 ## 诊断
 
 ```bash
-chmod +x scripts/modem-probe.sh scripts/quectel-voice-setup.sh scripts/device-verify.sh
+chmod +x scripts/modem-probe.sh scripts/quectel-voice-setup.sh scripts/device-verify.sh scripts/run-tests.sh
+./scripts/run-tests.sh
 ./scripts/modem-probe.sh
 ./scripts/device-verify.sh
 ```
@@ -68,6 +75,7 @@ chmod +x scripts/modem-probe.sh scripts/quectel-voice-setup.sh scripts/device-ve
 - [故障排除](docs/troubleshooting.md)
 - [Webhook 转发与验签](docs/webhook.md)
 - [真机验证清单](docs/device-checklist.md)
+- [EC801E 一次性验收流程](docs/ec801e-one-shot.md)
 
 ## 架构
 

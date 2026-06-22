@@ -56,6 +56,8 @@ export HIPI_SMOKE_NUMBER=13800138000
 
 ## 5. GNOME 顶栏扩展（可选）
 
+安装 `.deb` 时会自动为桌面用户安装扩展；开发环境可手动执行：
+
 ```bash
 ./packaging/gnome-shell-extension/install.sh
 # 注销重登，或 X11 下 Alt+F2 → r

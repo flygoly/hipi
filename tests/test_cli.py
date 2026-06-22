@@ -39,3 +39,10 @@ def test_cli_list_calls():
     with patch("hipi.cli.RpcClient", return_value=client):
         assert main(["list-calls", "--limit", "10"]) == 0
     client.call.assert_called_with("list_calls", {"limit": 10})
+
+
+def test_cli_setup_audio():
+    client = _mock_client(setup_call_audio={"ok": True, "message": "ok"})
+    with patch("hipi.cli.RpcClient", return_value=client):
+        assert main(["setup-audio"]) == 0
+    client.call.assert_called_with("setup_call_audio")

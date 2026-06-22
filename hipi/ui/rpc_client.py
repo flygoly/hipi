@@ -110,16 +110,20 @@ class DaemonStarter(QThread):
     def run(self) -> None:
         import subprocess
         import sys
+        import time
 
+        from hipi.config import DATA_DIR, ensure_dirs
+
+        ensure_dirs()
+        log_path = DATA_DIR / "daemon-start.log"
+        log_file = open(log_path, "a", encoding="utf-8")
         try:
             subprocess.Popen(
                 [sys.executable, "-m", "hipi.daemon.server"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
                 start_new_session=True,
             )
-            import time
-
             client = RpcEventClient()
             for _ in range(20):
                 time.sleep(0.25)
@@ -129,6 +133,8 @@ class DaemonStarter(QThread):
                     return
                 except RpcError:
                     continue
-            self.failed.emit("Daemon did not start in time")
+            self.failed.emit(f"Daemon did not start in time (see {log_path})")
         except Exception as exc:
             self.failed.emit(str(exc))
+        finally:
+            log_file.close()

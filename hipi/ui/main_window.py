@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QMainWindow, QStatusBar, QTabWidget, QVBoxLayout, 
 from hipi.contacts import contact_display_name
 from hipi.daemon.rpc_client import RpcError
 from hipi.ui.contacts.page import ContactsPage
+from hipi.ui.icon import app_icon
 from hipi.ui.phone.page import PhonePage
 from hipi.ui.rpc_client import RpcEventClient
 from hipi.ui.sms.page import SmsPage
@@ -21,6 +22,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.rpc = rpc
         self.setWindowTitle("HiPi")
+        self.setWindowIcon(app_icon())
         self.resize(900, 640)
 
         self.tabs = QTabWidget()

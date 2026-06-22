@@ -64,6 +64,12 @@ def cmd_list_calls(client: RpcClient, limit: int) -> int:
     return 0
 
 
+def cmd_setup_audio(client: RpcClient) -> int:
+    result = client.call("setup_call_audio")
+    _print_json(result)
+    return 0 if result.get("ok") else 1
+
+
 def cmd_list_contacts(client: RpcClient, query: str | None) -> int:
     params = {"query": query} if query else {}
     contacts = client.call("list_contacts", params)
@@ -125,6 +131,9 @@ def main(argv: list[str] | None = None) -> int:
     p_contacts = sub.add_parser("list-contacts", help="List local contacts")
     p_contacts.add_argument("--query", help="Search by name or number")
     p_contacts.set_defaults(func=lambda c, a: cmd_list_contacts(c, a.query))
+
+    p_audio = sub.add_parser("setup-audio", help="Route call audio to modem device")
+    p_audio.set_defaults(func=lambda c, a: cmd_setup_audio(c))
 
     args = parser.parse_args(argv)
     ensure_dirs()
