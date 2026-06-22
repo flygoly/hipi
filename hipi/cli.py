@@ -70,6 +70,18 @@ def cmd_setup_audio(client: RpcClient) -> int:
     return 0 if result.get("ok") else 1
 
 
+def cmd_ping(client: RpcClient) -> int:
+    result = client.call("ping")
+    _print_json(result)
+    return 0
+
+
+def cmd_list_conversations(client: RpcClient) -> int:
+    convs = client.call("list_conversations")
+    _print_json(convs)
+    return 0
+
+
 def cmd_list_contacts(client: RpcClient, query: str | None) -> int:
     params = {"query": query} if query else {}
     contacts = client.call("list_contacts", params)
@@ -97,6 +109,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("ui", help="Launch desktop UI")
     sub.add_parser("daemon", help="Run background daemon")
 
+    p_ping = sub.add_parser("ping", help="Check daemon connectivity")
+    p_ping.set_defaults(func=lambda c, a: cmd_ping(c))
+
     p_status = sub.add_parser("status", help="Show modem status")
     p_status.set_defaults(func=lambda c, a: cmd_status(c))
 
@@ -112,6 +127,9 @@ def main(argv: list[str] | None = None) -> int:
     p_list = sub.add_parser("list-messages", help="List stored messages")
     p_list.add_argument("--limit", type=int, default=50)
     p_list.set_defaults(func=lambda c, a: cmd_list_messages(c, a.limit))
+
+    p_convs = sub.add_parser("list-conversations", help="List SMS conversations")
+    p_convs.set_defaults(func=lambda c, a: cmd_list_conversations(c))
 
     p_dial = sub.add_parser("dial", help="Place a voice call")
     p_dial.add_argument("number", help="Phone number to dial")

@@ -25,11 +25,22 @@ def test_decode_empty():
 
 
 def test_decode_gsm7_data():
-    try:
-        from smspdu import gsm0338
-    except ImportError:
-        return
+    from smspdudecoder.codecs import GSM
+
     text = "HiPi"
-    raw = gsm0338.Codec().encode(text)[0]
+    raw = bytes.fromhex(GSM.encode(text))
     body = decode_sms_body({"Text": "", "Data": list(raw), "Encoding": 1})
     assert body == text
+
+
+def test_decode_full_incoming_pdu():
+    pdu_hex = "07916407058099F9040B916407950303F100008921222140140004D4E2940A"
+    raw = bytes.fromhex(pdu_hex)
+    body = decode_sms_body({"Text": "", "Data": list(raw), "Encoding": 0})
+    assert body == "TEST"
+
+
+def test_decode_gsm7_packed_hex():
+    raw = bytes.fromhex("C8F71D14969741F977FD07")
+    body = decode_sms_body({"Text": "", "Data": list(raw), "Encoding": 1})
+    assert body == "How are you?"

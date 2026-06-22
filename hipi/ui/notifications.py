@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+from hipi.icon_paths import notification_icon
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,7 +22,7 @@ def notify(title: str, body: str, urgency: str = "normal") -> None:
         iface.Notify(
             "HiPi",
             0,
-            "",
+            notification_icon(),
             title,
             body,
             [],

@@ -46,3 +46,17 @@ def test_cli_setup_audio():
     with patch("hipi.cli.RpcClient", return_value=client):
         assert main(["setup-audio"]) == 0
     client.call.assert_called_with("setup_call_audio")
+
+
+def test_cli_ping():
+    client = _mock_client(ping={"pong": True})
+    with patch("hipi.cli.RpcClient", return_value=client):
+        assert main(["ping"]) == 0
+    client.call.assert_called_with("ping")
+
+
+def test_cli_list_conversations():
+    client = _mock_client(list_conversations=[{"peer": "+861111", "unread": 1}])
+    with patch("hipi.cli.RpcClient", return_value=client):
+        assert main(["list-conversations"]) == 0
+    client.call.assert_called_with("list_conversations")

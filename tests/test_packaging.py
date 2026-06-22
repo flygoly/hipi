@@ -13,6 +13,7 @@ def test_build_deb_ships_icon_and_extension():
     text = Path("packaging/debian/build-deb.sh").read_text(encoding="utf-8")
     assert "hipi.svg" in text
     assert "gnome-shell-extension" in text
+    assert "loginctl enable-linger" in text
 
 
 def test_desktop_entry_uses_hipi_icon():

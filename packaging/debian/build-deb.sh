@@ -34,7 +34,8 @@ WRAP
 chmod 755 "$PKG_DIR/usr/bin/hipi-daemon"
 
 cp packaging/desktop/hipi.desktop "$PKG_DIR/usr/share/applications/"
-cp packaging/icons/hipi.svg "$PKG_DIR/usr/share/icons/hicolor/scalable/apps/"
+cp packaging/icons/hipi.svg "$PKG_DIR/usr/share/icons/hicolor/scalable/apps/" 2>/dev/null || \
+  cp hipi/data/hipi.svg "$PKG_DIR/usr/share/icons/hicolor/scalable/apps/"
 cp -a packaging/gnome-shell-extension/hipi@hipi "$PKG_DIR/usr/share/hipi/gnome-shell-extension/"
 cp packaging/scripts/install-gnome-extension.sh "$PKG_DIR/usr/share/hipi/scripts/"
 chmod 755 "$PKG_DIR/usr/share/hipi/scripts/install-gnome-extension.sh"
@@ -69,6 +70,9 @@ if [ "$1" = "configure" ]; then
     if [ -d "$home" ]; then
       su - "$u" -c "systemctl --user daemon-reload" 2>/dev/null || true
       su - "$u" -c "systemctl --user enable --now hipi-daemon.service" 2>/dev/null || true
+      if command -v loginctl >/dev/null; then
+        loginctl enable-linger "$u" 2>/dev/null || true
+      fi
       if [ -x /usr/share/hipi/scripts/install-gnome-extension.sh ]; then
         su - "$u" -c "HIPI_EXT_SRC=/usr/share/hipi/gnome-shell-extension/hipi@hipi bash /usr/share/hipi/scripts/install-gnome-extension.sh" 2>/dev/null || true
       fi

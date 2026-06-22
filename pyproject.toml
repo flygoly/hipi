@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 authors = [{ name = "HiPi Contributors" }]
 dependencies = [
     "PySide6>=6.6",
-    "smspdu>=0.2.0",
+    "smspdudecoder>=2.0.0",
 ]
 
 [project.optional-dependencies]
@@ -28,6 +28,9 @@ hipi-daemon = "hipi.daemon.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["hipi"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"hipi/data/hipi.svg" = "hipi/data/hipi.svg"
 
 [tool.ruff]
 line-length = 100

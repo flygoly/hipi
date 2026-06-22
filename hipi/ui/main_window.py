@@ -81,9 +81,15 @@ class MainWindow(QMainWindow):
         signal_q = m.get("signal_quality", 0)
         operator = m.get("operator_name") or m.get("operator_code") or "未知运营商"
         state = m.get("state", "unknown")
+        unread = status.get("unread_sms", 0)
         title = f"HiPi — {operator} {signal_q}%"
+        if unread:
+            title += f" ({unread})"
         self.setWindowTitle(title)
-        self.status_bar.showMessage(f"{operator} | 信号 {signal_q}% | {state}")
+        bar = f"{operator} | 信号 {signal_q}% | {state}"
+        if unread:
+            bar += f" | 未读 {unread}"
+        self.status_bar.showMessage(bar)
         self.modem_status_changed.emit(status)
 
     def refresh_all(self) -> None:

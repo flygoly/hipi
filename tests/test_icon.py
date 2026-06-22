@@ -5,6 +5,7 @@ from hipi.icon_paths import find_icon_path, icon_paths
 
 def test_icon_paths_include_packaging_svg():
     paths = icon_paths()
+    assert any(p.name == "hipi.svg" and "data" in str(p) for p in paths)
     assert any("packaging" in str(p) and p.name == "hipi.svg" for p in paths)
 
 

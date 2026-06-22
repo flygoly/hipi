@@ -3,10 +3,12 @@
 set -euo pipefail
 
 SMOKE=false
+HARDWARE_TESTS=false
 for arg in "$@"; do
-  if [[ "$arg" == "--smoke" ]]; then
-    SMOKE=true
-  fi
+  case "$arg" in
+    --smoke) SMOKE=true ;;
+    --hardware-tests) HARDWARE_TESTS=true ;;
+  esac
 done
 
 PASS=0
@@ -130,6 +132,19 @@ if $SMOKE; then
     else
       fail "hipi status missing modem"
     fi
+  fi
+fi
+
+if $HARDWARE_TESTS; then
+  section "Pytest hardware markers"
+  if command -v pytest >/dev/null; then
+    if pytest -q -m hardware tests/test_hardware.py; then
+      ok "hardware pytest passed"
+    else
+      fail "hardware pytest failed (daemon/modem required)"
+    fi
+  else
+    warn "pytest not installed; skip hardware tests"
   fi
 fi
 

@@ -104,7 +104,11 @@ def _update_tray_status(tray: QSystemTrayIcon, status: dict) -> None:
     signal_q = m.get("signal_quality", 0)
     operator = m.get("operator_name") or m.get("operator_code") or "未知"
     audio = "有音频" if status.get("audio") else "无音频"
-    tray.setToolTip(f"HiPi — {operator} {signal_q}% | {audio}")
+    unread = status.get("unread_sms", 0)
+    tip = f"HiPi — {operator} {signal_q}% | {audio}"
+    if unread:
+        tip += f" | 未读 {unread}"
+    tray.setToolTip(tip)
 
 
 def _setup_tray(app: QApplication, window: MainWindow, rpc: RpcEventClient) -> QSystemTrayIcon | None:

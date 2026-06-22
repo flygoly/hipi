@@ -51,21 +51,24 @@ def decode_sms_body(props: dict[str, Any]) -> str:
 
 def _decode_ucs2(raw: bytes) -> str:
     try:
-        return raw.decode("utf-16-be", errors="strict")
-    except UnicodeDecodeError:
+        from smspdudecoder.codecs import UCS2
+
+        return UCS2.decode(raw.hex().upper())
+    except Exception:
         try:
-            return raw.decode("utf-16-le", errors="replace")
+            return raw.decode("utf-16-be", errors="strict")
         except UnicodeDecodeError:
-            return ""
+            try:
+                return raw.decode("utf-16-le", errors="replace")
+            except UnicodeDecodeError:
+                return ""
 
 
 def _decode_gsm7(raw: bytes) -> str:
     try:
-        from smspdu import gsm0338
+        from smspdudecoder.codecs import GSM
 
-        codec = gsm0338.Codec()
-        text, _length = codec.decode(raw)
-        return str(text)
+        return GSM.decode(raw.hex().upper(), strip_padding=True)
     except Exception as exc:
         logger.debug("GSM-7 decode failed: %s", exc)
         return ""
@@ -77,26 +80,19 @@ def _decode_full_pdu(raw: bytes) -> str:
         return ""
 
     try:
-        from smspdu import SMS_DELIVER, SMS_SUBMIT
+        from smspdudecoder.easy import read_incoming_sms, read_outgoing_sms
 
-        for cls in (SMS_DELIVER, SMS_SUBMIT):
+        for reader in (read_incoming_sms, read_outgoing_sms):
             try:
-                pdu = cls.fromPDU(pdu_hex)
-                user_data = getattr(pdu, "user_data", None)
-                if user_data:
-                    return str(user_data)
+                result = reader(pdu_hex)
+                content = result.get("content", "")
+                if content:
+                    return str(content)
             except Exception:
                 continue
     except ImportError:
-        logger.debug("smspdu not installed")
-
-    try:
-        from io import BytesIO
-
-        from smspdudecoder.easy import read_incoming_sms
-
-        return str(read_incoming_sms(pdu_hex).get("text", "") or "")
-    except Exception:
-        pass
+        logger.debug("smspdudecoder not installed")
+    except Exception as exc:
+        logger.debug("PDU decode failed: %s", exc)
 
     return ""
