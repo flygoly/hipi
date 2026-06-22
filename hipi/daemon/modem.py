@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 MM_SERVICE = "org.freedesktop.ModemManager1"
 MM_PATH = "/org/freedesktop/ModemManager1"
 MM_IFACE = "org.freedesktop.ModemManager1"
+OM_IFACE = "org.freedesktop.DBus.ObjectManager"
 MODEM_IFACE = "org.freedesktop.ModemManager1.Modem"
 MODEM_SIMPLE_IFACE = "org.freedesktop.ModemManager1.Modem.Simple"
 MODEM_MESSAGING_IFACE = "org.freedesktop.ModemManager1.Modem.Messaging"
@@ -102,6 +103,7 @@ class ModemManagerClient:
         try:
             self._mm = self._bus.get_object(MM_SERVICE, MM_PATH)
             self._mm_iface = dbus.Interface(self._mm, MM_IFACE)
+            self._om_iface = dbus.Interface(self._mm, OM_IFACE)
         except dbus.DBusException as exc:
             raise ModemManagerError(
                 "ModemManager not available. Install and start modemmanager."
@@ -113,7 +115,7 @@ class ModemManagerClient:
 
     def list_modem_paths(self) -> list[str]:
         try:
-            modems = self._mm_iface.GetManagedObjects()
+            modems = self._om_iface.GetManagedObjects()
         except dbus.DBusException as exc:
             if "AccessDenied" in str(exc) or "Unauthorized" in str(exc):
                 raise ModemManagerError(
@@ -216,39 +218,39 @@ class ModemManagerClient:
         return str(modem_iface.Command(command, timeout=10))
 
     def on_modem_added(self, callback) -> None:
-        def _handler(path, iface):
-            if iface == MODEM_IFACE:
+        def _handler(path, interfaces):
+            if MODEM_IFACE in interfaces:
                 callback(str(path))
 
         self._bus.add_signal_receiver(
             _handler,
-            dbus_interface=MM_IFACE,
+            dbus_interface=OM_IFACE,
             signal_name="InterfacesAdded",
             path=MM_PATH,
         )
         self._modem_added_handlers.append(_handler)
 
     def on_sms_added(self, callback) -> None:
-        def _handler(path, iface):
-            if iface == SMS_IFACE:
+        def _handler(path, interfaces):
+            if SMS_IFACE in interfaces:
                 callback(str(path))
 
         self._bus.add_signal_receiver(
             _handler,
-            dbus_interface=MM_IFACE,
+            dbus_interface=OM_IFACE,
             signal_name="InterfacesAdded",
             path=MM_PATH,
         )
         self._sms_added_handlers.append(_handler)
 
     def on_call_added(self, callback) -> None:
-        def _handler(path, iface):
-            if iface == CALL_IFACE:
+        def _handler(path, interfaces):
+            if CALL_IFACE in interfaces:
                 callback(str(path))
 
         self._bus.add_signal_receiver(
             _handler,
-            dbus_interface=MM_IFACE,
+            dbus_interface=OM_IFACE,
             signal_name="InterfacesAdded",
             path=MM_PATH,
         )
@@ -256,11 +258,12 @@ class ModemManagerClient:
 
     def on_modem_removed(self, callback) -> None:
         def _handler(path, interfaces):
-            callback(str(path))
+            if MODEM_IFACE in interfaces:
+                callback(str(path))
 
         self._bus.add_signal_receiver(
             _handler,
-            dbus_interface=MM_IFACE,
+            dbus_interface=OM_IFACE,
             signal_name="InterfacesRemoved",
             path=MM_PATH,
         )
