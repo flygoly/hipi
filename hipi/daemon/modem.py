@@ -134,11 +134,20 @@ class ModemManagerClient:
         paths = self.list_modem_paths()
         if not paths:
             return None
+        preferred: str | None = None
         for path in paths:
-            status = self.get_modem_status(path)
+            try:
+                status = self.get_modem_status(path)
+            except dbus.DBusException as exc:
+                logger.warning("Modem status %s: %s", path, exc)
+                if preferred is None:
+                    preferred = path
+                continue
             if "quectel" in status.manufacturer.lower() or "ec801" in status.model.lower():
                 return path
-        return paths[0]
+            if preferred is None:
+                preferred = path
+        return preferred
 
     def get_modem_status(self, modem_path: str) -> ModemStatus:
         modem = self._bus.get_object(MM_SERVICE, modem_path)

@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 import dbus
 
-from hipi.daemon.at_serial import AtSerialClient, AtSerialError
+from hipi.daemon.at_serial import AT_MODEM_PREFIX, AtSerialClient, AtSerialError
 from hipi.daemon.modem import ModemManagerClient, ModemManagerError, SMS_IFACE
 from hipi.daemon.pdu import decode_sms_body
 from hipi.db.models import Database, Message
@@ -51,6 +51,8 @@ class SmsService:
         self._backend_cache: dict[str, str] = {}
 
     def get_backend(self, modem_path: str) -> str:
+        if modem_path.startswith(AT_MODEM_PREFIX):
+            return BACKEND_AT
         cached = self._backend_cache.get(modem_path)
         if cached:
             return cached

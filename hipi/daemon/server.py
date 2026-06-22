@@ -13,7 +13,7 @@ from gi.repository import GLib
 from hipi.config import SOCKET_PATH, ensure_dirs
 from hipi.daemon.audio import AudioRouter
 from hipi.daemon.forward import SmsForwarder
-from hipi.daemon.at_serial import AtSerialClient
+from hipi.daemon.at_serial import AT_MODEM_PREFIX, AtSerialClient, parse_at_modem_path
 from hipi.daemon.modem import ModemManagerClient, ModemManagerError
 from hipi.daemon.rpc import RpcServer
 from hipi.daemon.sms import BACKEND_AT, SmsService
@@ -29,6 +29,19 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
 logger = logging.getLogger("hipi.daemon")
+
+
+class _AtOnlyModemShim:
+    """Minimal stub when only AT serial is available."""
+
+    def has_messaging(self, _path: str) -> bool:
+        return False
+
+    def has_voice(self, _path: str) -> bool:
+        return False
+
+    def get_primary_modem_path(self) -> None:
+        return None
 
 
 class HiPiDaemon:
@@ -63,7 +76,13 @@ class HiPiDaemon:
         except ModemManagerError as exc:
             logger.warning("ModemManager unavailable: %s", exc)
             self.mm = None
-            return False
+            self._init_services()
+            if self._at.find_port():
+                logger.info("Using AT-only mode (ModemManager unavailable)")
+            if not self._mm_signals_connected:
+                self._setup_mm_signals()
+            self._publish_status()
+            return self._sms is not None
 
     def _on_message(self, msg: Message) -> None:
         payload = msg.to_dict()
@@ -95,9 +114,22 @@ class HiPiDaemon:
             self._forwarder.maybe_forward(msg, props, self._sms, modem_path)
 
     def _init_services(self) -> None:
-        if not self.mm:
+        if not self.mm and not self._at.find_port():
             self._sms = None
             self._voice = None
+            return
+        if not self.mm:
+            self._sms = SmsService(
+                _AtOnlyModemShim(),
+                self.db,
+                on_message=self._on_message,
+                on_message_updated=self._on_message_updated,
+                on_inbound=self._on_inbound_sms,
+                at=self._at,
+            )
+            self._voice = VoiceService(
+                _AtOnlyModemShim(), self.db, on_call_event=self._on_call_event, at=self._at
+            )
             return
         self._sms = SmsService(
             self.mm,
@@ -141,14 +173,22 @@ class HiPiDaemon:
         self.rpc.register("export_calls_csv", self._handle_export_calls_csv)
 
     def _modem_path(self) -> str | None:
-        if not self.mm:
-            return None
-        try:
-            return self.mm.get_primary_modem_path()
-        except ModemManagerError as exc:
-            self._modem_access_error = str(exc)
-            logger.warning("%s", exc)
-            return None
+        if self.mm:
+            try:
+                path = self.mm.get_primary_modem_path()
+                if path:
+                    self._modem_access_error = None
+                    return path
+            except ModemManagerError as exc:
+                self._modem_access_error = str(exc)
+                logger.warning("%s", exc)
+            except Exception as exc:
+                self._modem_access_error = f"ModemManager error: {exc}"
+                logger.warning("Modem path via MM failed: %s", exc)
+        at_port = self._at.find_port()
+        if at_port:
+            return f"{AT_MODEM_PREFIX}{at_port}"
+        return None
 
     def _build_status(self) -> dict[str, Any]:
         path = self._modem_path()
@@ -158,12 +198,65 @@ class HiPiDaemon:
             "launch_command": "hipi ui",
         }
         if not path:
+            at_port = self._at.find_port(force_rescan=True)
             base["modem_present"] = False
             base["modem_hint"] = self._modem_access_error or "ModemManager 未发现可用模组"
+            if at_port:
+                base["modem_hint"] += f"；检测到 AT 口 {at_port}，请运行: sudo ./scripts/setup-quectel-ec801e.sh"
+            else:
+                base["modem_hint"] += "；请确认 USB 已插入并运行: sudo ./scripts/setup-quectel-ec801e.sh"
+            base["at_port"] = at_port
             base["audio"] = self.audio.has_voice_audio()
             return base
+
+        if path.startswith(AT_MODEM_PREFIX):
+            at_port = parse_at_modem_path(path) or ""
+            modem_dict = self._at.probe_modem_info()
+            modem_dict["path"] = path
+            modem_dict["sms_backend"] = BACKEND_AT
+            modem_dict["voice_backend"] = "at"
+            base.update(
+                {
+                    "modem_present": True,
+                    "modem": modem_dict,
+                    "audio": self.audio.has_voice_audio(),
+                    "sms_backend": BACKEND_AT,
+                    "voice_backend": "at",
+                    "at_port": at_port,
+                }
+            )
+            return base
+
         self._modem_access_error = None
-        status = self.mm.get_modem_status(path)
+        try:
+            status = self.mm.get_modem_status(path)
+        except Exception as exc:
+            logger.warning("Modem status via MM failed (%s): %s", path, exc)
+            at_port = self._at.find_port(force_rescan=True)
+            if at_port:
+                path = f"{AT_MODEM_PREFIX}{at_port}"
+                modem_dict = self._at.probe_modem_info()
+                modem_dict["path"] = path
+                modem_dict["sms_backend"] = BACKEND_AT
+                modem_dict["voice_backend"] = "at"
+                base.update(
+                    {
+                        "modem_present": True,
+                        "modem": modem_dict,
+                        "audio": self.audio.has_voice_audio(),
+                        "sms_backend": BACKEND_AT,
+                        "voice_backend": "at",
+                        "at_port": at_port,
+                        "modem_hint": f"ModemManager 状态读取失败，已改用 AT 口 ({at_port})",
+                    }
+                )
+                return base
+            base["modem_present"] = False
+            base["modem_hint"] = f"ModemManager 状态读取失败: {exc}"
+            base["at_port"] = None
+            base["audio"] = self.audio.has_voice_audio()
+            return base
+
         modem_dict = status.to_dict()
         sms_backend = self._sms.get_backend(path) if self._sms else "none"
         voice_backend = "mm" if status.voice else (
@@ -453,14 +546,14 @@ class HiPiDaemon:
     def _setup_mm_signals(self) -> None:
         if self._mm_retry_timer is None:
             self._mm_retry_timer = GLib.timeout_add_seconds(10, self._retry_mm)
+        if self._poll_timer is None:
+            self._poll_timer = GLib.timeout_add_seconds(30, self._poll_modem)
         if not self.mm or self._mm_signals_connected:
             return
         self.mm.on_modem_added(self._on_modem_added)
         self.mm.on_modem_removed(self._on_modem_removed)
         self.mm.on_sms_added(self._on_sms_added)
         self.mm.on_call_added(self._on_call_added)
-        if self._poll_timer is None:
-            self._poll_timer = GLib.timeout_add_seconds(30, self._poll_modem)
         self._mm_signals_connected = True
 
     async def _run_async(self) -> None:
@@ -472,14 +565,15 @@ class HiPiDaemon:
         self._setup_mm_signals()
 
         path = self._modem_path()
-        if path and self.mm:
+        if path and (self.mm or self._sms):
             logger.info("Primary modem: %s", path)
-            try:
-                status = self.mm.get_modem_status(path)
-                if status.state == "disabled":
-                    self.mm.enable_modem(path)
-            except Exception as exc:
-                logger.warning("Modem enable: %s", exc)
+            if self.mm and not path.startswith(AT_MODEM_PREFIX):
+                try:
+                    status = self.mm.get_modem_status(path)
+                    if status.state == "disabled":
+                        self.mm.enable_modem(path)
+                except Exception as exc:
+                    logger.warning("Modem enable: %s", exc)
             if self._sms:
                 self._safe_sync_sms(path, emit_events=False)
             self._publish_status()

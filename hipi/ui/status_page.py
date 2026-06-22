@@ -138,7 +138,14 @@ class StatusPage(QWidget):
             return
 
         if not status.get("modem_present"):
-            self.info.setPlainText("未检测到 4G 模组。请插入 EC801E USB 并确认 ModemManager 正在运行。")
+            hint = status.get("modem_hint", "")
+            lines = ["未检测到 4G 模组。请插入 EC801E USB 并确认 ModemManager 正在运行。"]
+            if hint:
+                lines.append(hint)
+            if status.get("at_port"):
+                lines.append(f"AT 口: {status['at_port']}")
+            lines.append("修复: sudo ./scripts/setup-quectel-ec801e.sh && systemctl --user restart hipi-daemon")
+            self.info.setPlainText("\n".join(lines))
             return
 
         m = status["modem"]
@@ -152,8 +159,9 @@ class StatusPage(QWidget):
             f"IMEI: {m.get('imei', '')}",
             f"本机号码: {', '.join(m.get('own_numbers', [])) or '未知'}",
             f"SIM 锁定: {'是' if m.get('sim_locked') else '否'}",
-            f"短信: {'支持' if m.get('messaging') else '不支持'}",
-            f"语音: {'支持' if m.get('voice') else '不支持'}",
+            f"短信: {'支持' if m.get('messaging') else '不支持'} ({status.get('sms_backend', m.get('sms_backend', ''))})",
+            f"语音: {'支持' if m.get('voice') else '不支持'} ({status.get('voice_backend', m.get('voice_backend', ''))})",
+            f"AT 口: {status.get('at_port') or '—'}",
             f"通话音频设备: {'已检测' if status.get('audio') else '未检测'}",
         ]
         self.info.setPlainText("\n".join(lines))

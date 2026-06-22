@@ -58,14 +58,25 @@ class ModemDetectPage(QWizardPage):
             self._detected = False
             return
         if not status.get("modem_present"):
-            self.output.setPlainText("未检测到模组。请检查 USB 连接后重试。")
+            hint = status.get("modem_hint", "")
+            at_port = status.get("at_port")
+            text = "未检测到模组。请检查 USB 连接后重试。"
+            if hint:
+                text += f"\n\n{hint}"
+            if at_port:
+                text += f"\n\nAT 口: {at_port}"
+            text += "\n\n建议:\n  sudo ./scripts/setup-quectel-ec801e.sh\n  systemctl --user restart hipi-daemon"
+            self.output.setPlainText(text)
             self._detected = False
             return
         m = status["modem"]
+        backend = status.get("sms_backend") or m.get("sms_backend", "")
         self.output.setPlainText(
             f"已识别: {m.get('manufacturer')} {m.get('model')}\n"
             f"状态: {m.get('state')}\n"
-            f"信号: {m.get('signal_quality')}%"
+            f"信号: {m.get('signal_quality')}%\n"
+            f"短信通道: {backend or '未知'}\n"
+            f"AT 口: {status.get('at_port') or '—'}"
         )
         self._detected = True
 

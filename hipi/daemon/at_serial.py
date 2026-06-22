@@ -29,6 +29,19 @@ class AtSerialError(Exception):
     pass
 
 
+AT_MODEM_PREFIX = "at:"
+
+
+def at_modem_path(port: str) -> str:
+    return f"{AT_MODEM_PREFIX}{port}"
+
+
+def parse_at_modem_path(path: str) -> str | None:
+    if path.startswith(AT_MODEM_PREFIX):
+        return path[len(AT_MODEM_PREFIX) :]
+    return None
+
+
 class AtSerialClient:
     """Thread-safe AT client for SMS on modems without MM Messaging (e.g. EC801E ECM)."""
 
@@ -151,6 +164,60 @@ class AtSerialClient:
         resp = self.command("ATH", timeout=10)
         if "OK" not in resp and "ERROR" in resp:
             raise AtSerialError(resp.strip())
+
+    def probe_modem_info(self) -> dict[str, Any]:
+        """Best-effort modem identity via AT (when ModemManager has no modem object)."""
+        info: dict[str, Any] = {
+            "manufacturer": "Quectel",
+            "model": "EC801E",
+            "state": "unknown",
+            "signal_quality": 0,
+            "operator_name": "",
+            "operator_code": "",
+            "imei": "",
+            "own_numbers": [],
+            "sim_locked": False,
+            "messaging": True,
+            "voice": True,
+        }
+        try:
+            ati = self.command("ATI", timeout=3)
+            for line in ati.splitlines():
+                line = line.strip()
+                if not line or line in ("OK", "ERROR"):
+                    continue
+                if "EC801" in line.upper():
+                    info["model"] = line.split()[-1] if line else "EC801E"
+                elif "QUECTEL" in line.upper():
+                    info["manufacturer"] = "Quectel"
+            imei = self.command("AT+CGSN", timeout=3)
+            for line in imei.splitlines():
+                digits = "".join(c for c in line if c.isdigit())
+                if len(digits) >= 14:
+                    info["imei"] = digits
+                    break
+            csq = self.command("AT+CSQ", timeout=3)
+            m = re.search(r"\+CSQ:\s*(\d+)", csq)
+            if m:
+                rssi = int(m.group(1))
+                if rssi != 99:
+                    info["signal_quality"] = min(100, max(0, int((rssi / 31) * 100)))
+            cpin = self.command("AT+CPIN?", timeout=3)
+            if "READY" in cpin:
+                info["sim_locked"] = False
+                info["state"] = "registered"
+            elif "SIM PIN" in cpin:
+                info["sim_locked"] = True
+                info["state"] = "locked"
+            cnum = self.command("AT+CNUM", timeout=3)
+            numbers = re.findall(r'"([^"]+)"', cnum)
+            info["own_numbers"] = [n for n in numbers if any(c.isdigit() for c in n)]
+        except AtSerialError as exc:
+            logger.debug("AT probe partial: %s", exc)
+        port = self.active_port() or self.find_port()
+        if port:
+            info["at_port"] = port
+        return info
 
     def _run_locked(self, fn: Callable[[str], Any]) -> Any:
         with self._lock:

@@ -54,6 +54,8 @@ class VoiceService:
         self._at_call_id: int | None = None
 
     def voice_available(self, modem_path: str) -> bool:
+        if modem_path.startswith("at:"):
+            return self._at.find_port() is not None
         if self._mm.has_voice(modem_path):
             return True
         return self._at.find_port() is not None
@@ -62,6 +64,9 @@ class VoiceService:
         peer = normalize_number(number)
         if not peer:
             return {"ok": False, "error": "Invalid phone number"}
+
+        if modem_path.startswith("at:"):
+            return self._dial_at(peer)
 
         if self._mm.has_voice(modem_path):
             return self._dial_mm(modem_path, peer)
