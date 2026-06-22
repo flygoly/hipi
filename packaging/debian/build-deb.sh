@@ -2,10 +2,15 @@
 # Build HiPi .deb package (run on target ARM64 Ubuntu or with native Python)
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 VERSION="${1:-0.1.0}"
 BUILD_DIR="$ROOT/build/debian"
 PKG_DIR="$BUILD_DIR/hipi_${VERSION}_arm64"
+
+if [[ ! -f "$ROOT/pyproject.toml" ]]; then
+  echo "Error: pyproject.toml not found at $ROOT (wrong ROOT?)" >&2
+  exit 1
+fi
 
 rm -rf "$PKG_DIR"
 mkdir -p "$PKG_DIR/DEBIAN" "$PKG_DIR/usr/lib/hipi" "$PKG_DIR/usr/bin"

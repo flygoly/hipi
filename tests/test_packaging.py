@@ -3,6 +3,12 @@
 from pathlib import Path
 
 
+def test_build_deb_resolves_project_root():
+    text = Path("packaging/debian/build-deb.sh").read_text(encoding="utf-8")
+    assert 'dirname "$0")/../..' in text
+    assert "pyproject.toml not found" in text
+
+
 def test_build_deb_declares_audio_deps():
     text = Path("packaging/debian/build-deb.sh").read_text(encoding="utf-8")
     assert "pipewire-pulse" in text or "pulseaudio-utils" in text
