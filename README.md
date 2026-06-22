@@ -30,7 +30,7 @@ hipi ui
 |------|------|
 | 单板 | Orange Pi 6 Plus（或其他 ARM64） |
 | 系统 | Ubuntu 24.04 Desktop（GNOME） |
-| 模组 | Quectel EC801E-CN + 含语音/短信的 SIM |
+| 模组 | Quectel EC801E-CN + 含语音/短信的 SIM（ECM/AT 自动适配） |
 | 服务 | ModemManager、PipeWire |
 
 ## 安装方式

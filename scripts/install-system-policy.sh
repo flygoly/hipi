@@ -35,6 +35,11 @@ fi
 echo "==> Reload D-Bus"
 systemctl reload dbus 2>/dev/null || systemctl restart dbus
 
+if [[ -x "$ROOT/scripts/setup-quectel-ec801e.sh" ]]; then
+  echo "==> Quectel EC801E USB serial"
+  bash "$ROOT/scripts/setup-quectel-ec801e.sh"
+fi
+
 echo ""
 echo "System policy installed."
 echo "  1. Log out and log back in (dialout/plugdev group)"

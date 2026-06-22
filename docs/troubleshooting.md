@@ -18,6 +18,18 @@ hipi unlock <PIN>
 mmcli -i 0 --pin=<PIN>
 ```
 
+## EC801E ECM / AT 短信
+
+EC801E 固件通常仅支持 ECM（`usbnet` 1），HiPi 通过 AT 串口收发短息，**无需切换 QMI**。
+
+```bash
+hipi status    # sms_backend: "at", at_port: "/dev/ttyUSB..."
+sudo ./scripts/setup-quectel-ec801e.sh   # 若 AT 口缺失
+systemctl --user restart hipi-daemon
+```
+
+固定 AT 口：`echo /dev/ttyUSB2 > ~/.config/hipi/at_port`
+
 ## 4G 模式下短信发送失败
 
 部分运营商在 VoLTE/IMS 下短信行为异常。尝试：

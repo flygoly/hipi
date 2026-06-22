@@ -13,9 +13,10 @@ from gi.repository import GLib
 from hipi.config import SOCKET_PATH, ensure_dirs
 from hipi.daemon.audio import AudioRouter
 from hipi.daemon.forward import SmsForwarder
+from hipi.daemon.at_serial import AtSerialClient
 from hipi.daemon.modem import ModemManagerClient, ModemManagerError
 from hipi.daemon.rpc import RpcServer
-from hipi.daemon.sms import SmsService
+from hipi.daemon.sms import BACKEND_AT, SmsService
 from hipi.daemon.voice import VoiceService
 from hipi.db.models import Database, Message
 from hipi.export import export_calls_csv, export_messages_csv
@@ -35,6 +36,7 @@ class HiPiDaemon:
         ensure_dirs()
         self.db = Database()
         self.mm: ModemManagerClient | None = None
+        self._at = AtSerialClient()
         self.audio = AudioRouter()
         self.loop = asyncio.new_event_loop()
         self.rpc = RpcServer(str(SOCKET_PATH))
@@ -103,8 +105,11 @@ class HiPiDaemon:
             on_message=self._on_message,
             on_message_updated=self._on_message_updated,
             on_inbound=self._on_inbound_sms,
+            at=self._at,
         )
-        self._voice = VoiceService(self.mm, self.db, on_call_event=self._on_call_event)
+        self._voice = VoiceService(
+            self.mm, self.db, on_call_event=self._on_call_event, at=self._at
+        )
 
     def _register_handlers(self) -> None:
         self.rpc.register("ping", lambda _p: {"pong": True})
@@ -159,11 +164,23 @@ class HiPiDaemon:
             return base
         self._modem_access_error = None
         status = self.mm.get_modem_status(path)
+        modem_dict = status.to_dict()
+        sms_backend = self._sms.get_backend(path) if self._sms else "none"
+        voice_backend = "mm" if status.voice else (
+            "at" if self._voice and self._voice.voice_available(path) else "none"
+        )
+        if sms_backend == BACKEND_AT:
+            modem_dict["messaging"] = True
+        modem_dict["sms_backend"] = sms_backend
+        modem_dict["voice_backend"] = voice_backend
         base.update(
             {
                 "modem_present": True,
-                "modem": status.to_dict(),
+                "modem": modem_dict,
                 "audio": self.audio.has_voice_audio(),
+                "sms_backend": sms_backend,
+                "voice_backend": voice_backend,
+                "at_port": self._sms.at_port() if self._sms else None,
             }
         )
         return base
@@ -187,6 +204,12 @@ class HiPiDaemon:
             self.mm.unlock_sim(path, pin)
             return {"ok": True}
         except Exception as exc:
+            if self._sms:
+                try:
+                    self._sms.unlock_sim_at(pin)
+                    return {"ok": True, "backend": "at"}
+                except Exception as at_exc:
+                    return {"ok": False, "error": str(at_exc)}
             return {"ok": False, "error": str(exc)}
 
     def _handle_send_sms(self, params: dict) -> dict[str, Any]:
@@ -371,9 +394,17 @@ class HiPiDaemon:
         if not path or not self._sms:
             return {"ok": False, "error": "No modem"}
         imported = self._sms.sync_from_modem(path, emit_events=False)
-        if self._voice:
+        if self._voice and self.mm.has_voice(path):
             self._voice.poll_calls(path)
         return {"ok": True, "imported": len(imported)}
+
+    def _safe_sync_sms(self, path: str, *, emit_events: bool = False) -> None:
+        if not self._sms or not self._sms.sms_available(path):
+            return
+        try:
+            self._sms.sync_from_modem(path, emit_events=emit_events)
+        except Exception as exc:
+            logger.warning("SMS sync skipped: %s", exc)
 
     def _on_modem_added(self, path: str) -> None:
         logger.info("Modem added: %s", path)
@@ -381,12 +412,13 @@ class HiPiDaemon:
             self._ensure_mm()
         if not self.mm:
             return
+        if self._sms:
+            self._sms.reset_backends()
         try:
             self.mm.enable_modem(path)
         except Exception as exc:
             logger.warning("Enable modem failed: %s", exc)
-        if self._sms:
-            self._sms.sync_from_modem(path, emit_events=False)
+        self._safe_sync_sms(path, emit_events=False)
         self._publish_status()
 
     def _on_modem_removed(self, path: str) -> None:
@@ -407,7 +439,7 @@ class HiPiDaemon:
             self._ensure_mm()
         path = self._modem_path()
         if path and self._sms:
-            self._sms.sync_from_modem(path, emit_events=False)
+            self._safe_sync_sms(path, emit_events=False)
         if path and self._voice:
             self._voice.poll_calls(path)
         self._publish_status()
@@ -449,7 +481,7 @@ class HiPiDaemon:
             except Exception as exc:
                 logger.warning("Modem enable: %s", exc)
             if self._sms:
-                self._sms.sync_from_modem(path, emit_events=False)
+                self._safe_sync_sms(path, emit_events=False)
             self._publish_status()
 
         self.loop.run_until_complete(self._run_async())

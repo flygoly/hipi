@@ -23,6 +23,14 @@ class FakeModemManager:
     def list_modem_call_paths(self, modem_path: str) -> list[str]:
         return list(self._props.keys())
 
+    def has_voice(self, modem_path: str) -> bool:
+        return True
+
+    def get_voice_interface(self, modem_path: str):
+        mock = MagicMock()
+        mock.CreateCall.side_effect = lambda props: list(self._props.keys())[0] if self._props else "/call/new"
+        return mock
+
     def watch_properties(self, path: str, iface: str, callback: Any) -> None:
         self._watchers.setdefault(path, []).append(callback)
 

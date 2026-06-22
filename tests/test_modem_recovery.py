@@ -8,6 +8,24 @@ from hipi.daemon.modem import ModemManagerError
 from hipi.daemon.server import HiPiDaemon
 
 
+def _mock_mm() -> MagicMock:
+    mock_mm = MagicMock()
+    mock_mm.get_primary_modem_path.return_value = "/modem/0"
+    status = MagicMock()
+    status.to_dict.return_value = {
+        "state": "registered",
+        "messaging": False,
+        "voice": False,
+        "signal_quality": 50,
+    }
+    status.voice = False
+    status.messaging = False
+    mock_mm.get_modem_status.return_value = status
+    mock_mm.has_messaging.return_value = False
+    mock_mm.has_voice.return_value = False
+    return mock_mm
+
+
 def _fresh_daemon(tmp: str) -> HiPiDaemon:
     daemon = HiPiDaemon()
     daemon.db.close()
@@ -22,10 +40,10 @@ def _fresh_daemon(tmp: str) -> HiPiDaemon:
 def test_ensure_mm_initializes_services():
     with tempfile.TemporaryDirectory() as tmp:
         daemon = _fresh_daemon(tmp)
-        mock_mm = MagicMock()
-        mock_mm.get_primary_modem_path.return_value = "/modem/0"
+        mock_mm = _mock_mm()
         with patch("hipi.daemon.server.ModemManagerClient", return_value=mock_mm):
-            assert daemon._ensure_mm() is True
+            with patch.object(daemon._at, "find_port", return_value=None):
+                assert daemon._ensure_mm() is True
         assert daemon.mm is mock_mm
         assert daemon._sms is not None
         assert daemon._voice is not None
@@ -44,10 +62,10 @@ def test_ensure_mm_returns_false_when_mm_unavailable():
 def test_on_modem_added_reconnects_after_late_plug():
     with tempfile.TemporaryDirectory() as tmp:
         daemon = _fresh_daemon(tmp)
-        mock_mm = MagicMock()
-        mock_mm.get_primary_modem_path.return_value = "/modem/0"
+        mock_mm = _mock_mm()
         with patch("hipi.daemon.server.ModemManagerClient", return_value=mock_mm):
-            daemon._on_modem_added("/modem/0")
+            with patch.object(daemon._at, "find_port", return_value=None):
+                daemon._on_modem_added("/modem/0")
         assert daemon.mm is mock_mm
         mock_mm.enable_modem.assert_called_once_with("/modem/0")
         daemon.db.close()

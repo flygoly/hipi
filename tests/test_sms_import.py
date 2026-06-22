@@ -23,6 +23,9 @@ class FakeSmsModem:
     def list_modem_sms_paths(self, modem_path: str) -> list[str]:
         return list(self._props.keys())
 
+    def has_messaging(self, modem_path: str) -> bool:
+        return True
+
     def watch_properties(self, path: str, iface: str, callback: Any) -> None:
         pass
 

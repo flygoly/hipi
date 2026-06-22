@@ -294,12 +294,42 @@ class ModemManagerClient:
         return {k: _dbus_to_python(v) for k, v in values.items()}
 
     def list_modem_sms_paths(self, modem_path: str) -> list[str]:
+        if not self.has_messaging(modem_path):
+            return []
         messaging = self.get_messaging_interface(modem_path)
         return [str(p) for p in messaging.List()]
 
     def list_modem_call_paths(self, modem_path: str) -> list[str]:
+        if not self.has_voice(modem_path):
+            return []
         voice = self.get_voice_interface(modem_path)
         return [str(p) for p in voice.ListCalls()]
+
+    def has_messaging(self, modem_path: str) -> bool:
+        try:
+            modem = self._bus.get_object(MM_SERVICE, modem_path)
+            introspect = dbus.Interface(modem, "org.freedesktop.DBus.Introspectable")
+            xml = str(introspect.Introspect())
+            if MODEM_MESSAGING_IFACE not in xml:
+                return False
+            messaging = dbus.Interface(modem, MODEM_MESSAGING_IFACE)
+            messaging.List()
+            return True
+        except dbus.DBusException:
+            return False
+
+    def has_voice(self, modem_path: str) -> bool:
+        try:
+            modem = self._bus.get_object(MM_SERVICE, modem_path)
+            introspect = dbus.Interface(modem, "org.freedesktop.DBus.Introspectable")
+            xml = str(introspect.Introspect())
+            if MODEM_VOICE_IFACE not in xml:
+                return False
+            voice = dbus.Interface(modem, MODEM_VOICE_IFACE)
+            voice.ListCalls()
+            return True
+        except dbus.DBusException:
+            return False
 
     def watch_properties(self, object_path: str, iface: str, callback) -> None:
         """Subscribe to PropertiesChanged on a D-Bus object."""

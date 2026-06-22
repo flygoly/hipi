@@ -1,4 +1,4 @@
-"""Voice call handling via ModemManager."""
+"""Voice call handling via ModemManager or AT (EC801E ECM)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 import dbus
 
+from hipi.daemon.at_serial import AtSerialClient, AtSerialError
 from hipi.daemon.modem import CALL_IFACE, ModemManagerClient
 from hipi.db.models import CallRecord, Database
 from hipi.util import normalize_number
@@ -41,18 +42,34 @@ class VoiceService:
         mm: ModemManagerClient,
         db: Database,
         on_call_event: Callable[[dict[str, Any]], None] | None = None,
+        at: AtSerialClient | None = None,
     ) -> None:
         self._mm = mm
         self._db = db
+        self._at = at or AtSerialClient()
         self._on_call_event = on_call_event
         self._active_calls: dict[str, int] = {}
         self._active_since: dict[str, datetime] = {}
         self._watched_calls: set[str] = set()
+        self._at_call_id: int | None = None
+
+    def voice_available(self, modem_path: str) -> bool:
+        if self._mm.has_voice(modem_path):
+            return True
+        return self._at.find_port() is not None
 
     def dial(self, modem_path: str, number: str) -> dict[str, Any]:
         peer = normalize_number(number)
         if not peer:
             return {"ok": False, "error": "Invalid phone number"}
+
+        if self._mm.has_voice(modem_path):
+            return self._dial_mm(modem_path, peer)
+        if self._at.find_port():
+            return self._dial_at(peer)
+        return {"ok": False, "error": "Voice not available (no MM Voice or AT port)"}
+
+    def _dial_mm(self, modem_path: str, peer: str) -> dict[str, Any]:
         voice = self._mm.get_voice_interface(modem_path)
         try:
             call_path = str(voice.CreateCall({"number": peer}))
@@ -66,12 +83,29 @@ class VoiceService:
             self._track_call(call_path, record.id)
             self._watch_call(call_path)
             self._emit({"type": "call_started", "call": record.to_dict(), "path": call_path})
-            return {"ok": True, "call": record.to_dict(), "path": call_path}
+            return {"ok": True, "call": record.to_dict(), "path": call_path, "backend": "mm"}
         except dbus.DBusException as exc:
             logger.exception("Dial failed")
             return {"ok": False, "error": str(exc)}
 
+    def _dial_at(self, peer: str) -> dict[str, Any]:
+        try:
+            self._at.dial(peer)
+            record = self._db.add_call(
+                peer=peer,
+                direction="outbound",
+                state="dialing",
+                modem_call_path="at:active",
+            )
+            self._at_call_id = record.id
+            self._emit({"type": "call_started", "call": record.to_dict(), "path": "at:active"})
+            return {"ok": True, "call": record.to_dict(), "path": "at:active", "backend": "at"}
+        except AtSerialError as exc:
+            return {"ok": False, "error": str(exc)}
+
     def answer(self, call_path: str) -> dict[str, Any]:
+        if call_path == "at:active":
+            return {"ok": False, "error": "Inbound AT calls not supported yet"}
         try:
             call = dbus.Interface(
                 dbus.SystemBus().get_object("org.freedesktop.ModemManager1", call_path),
@@ -84,6 +118,21 @@ class VoiceService:
             return {"ok": False, "error": str(exc)}
 
     def hangup(self, call_path: str | None = None) -> dict[str, Any]:
+        if call_path == "at:active" or (call_path is None and self._at_call_id):
+            try:
+                self._at.hangup()
+                if self._at_call_id:
+                    self._db.update_call(
+                        self._at_call_id,
+                        state="terminated",
+                        ended_at=datetime.now(timezone.utc).isoformat(),
+                    )
+                    self._emit({"type": "call_state", "path": "at:active", "state": "terminated"})
+                    self._at_call_id = None
+                return {"ok": True, "backend": "at"}
+            except AtSerialError as exc:
+                return {"ok": False, "error": str(exc)}
+
         try:
             if call_path:
                 paths = [call_path]
@@ -139,6 +188,8 @@ class VoiceService:
         return record
 
     def poll_calls(self, modem_path: str) -> None:
+        if not self._mm.has_voice(modem_path):
+            return
         for call_path in self._mm.list_modem_call_paths(modem_path):
             props = self._mm.get_call_properties(call_path)
             state_val = int(props.get("State", 0))
@@ -149,6 +200,20 @@ class VoiceService:
                 self.handle_call_added(call_path)
 
     def list_active_calls(self, modem_path: str) -> list[dict[str, Any]]:
+        if self._at_call_id:
+            call = self._db.get_call_by_modem_path("at:active")
+            if call and call.state != "terminated":
+                return [
+                    {
+                        "path": "at:active",
+                        "number": call.peer,
+                        "state": call.state,
+                        "direction": call.direction,
+                        "backend": "at",
+                    }
+                ]
+        if not self._mm.has_voice(modem_path):
+            return []
         result = []
         for call_path in self._mm.list_modem_call_paths(modem_path):
             props = self._mm.get_call_properties(call_path)
@@ -161,6 +226,7 @@ class VoiceService:
                     "number": str(props.get("Number", "")),
                     "state": STATE_NAMES.get(state_val, "unknown"),
                     "direction": "inbound" if int(props.get("Direction", 0)) == 1 else "outbound",
+                    "backend": "mm",
                 }
             )
         return result

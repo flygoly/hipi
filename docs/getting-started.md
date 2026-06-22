@@ -98,10 +98,40 @@ sudo apt install -y python3-pip python3-venv python3-gi python3-dbus \
   libqmi-utils gir1.2-glib-2.0
 
 pip install -e ".[dev]"
-sudo ./scripts/install-system-policy.sh   # D-Bus / Polkit 权限，必做
+sudo ./scripts/install-system-policy.sh   # D-Bus / Polkit + EC801E 串口
 # 注销重登后加入 dialout/plugdev
 systemctl --user enable --now hipi-daemon
 ```
+
+---
+
+## EC801E（ECM 模式）说明
+
+Quectel **EC801E-CN** 多数固件仅支持 USB 模式 `usbnet` **1（ECM）** 或 **3（RNDIS）**，**不支持 QMI**。HiPi 会自动：
+
+- 通过 **ModemManager** 读取信号、运营商、SIM 状态
+- 通过 **AT 串口**（`/dev/ttyUSB*`）收发短息、解锁 PIN、外呼/挂断
+
+**无需**手动执行 `AT+QCFG="usbnet",0` 或切换 QMI。
+
+安装后确认：
+
+```bash
+hipi status
+# 期望: modem_present=true, sms_backend="at", at_port="/dev/ttyUSB..."
+hipi send-sms 13800138000 "HiPi 测试"
+hipi ui
+```
+
+若 `at_port` 为空：
+
+```bash
+sudo ./scripts/setup-quectel-ec801e.sh
+# 拔插 USB，注销重登（dialout 组）
+systemctl --user restart hipi-daemon
+```
+
+固定 AT 口（可选）：`echo /dev/ttyUSB2 > ~/.config/hipi/at_port`
 
 ---
 

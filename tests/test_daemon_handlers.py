@@ -16,8 +16,17 @@ def _daemon_with_db(tmp: str) -> HiPiDaemon:
     daemon.mm = MagicMock()
     daemon.mm.get_primary_modem_path.return_value = "/modem/0"
     status = MagicMock()
-    status.to_dict.return_value = {"state": "registered", "signal_quality": 80}
+    status.to_dict.return_value = {
+        "state": "registered",
+        "signal_quality": 80,
+        "messaging": True,
+        "voice": False,
+    }
+    status.voice = False
+    status.messaging = True
     daemon.mm.get_modem_status.return_value = status
+    daemon.mm.has_messaging.return_value = True
+    daemon.mm.has_voice.return_value = False
     daemon._init_services()
     return daemon
 
