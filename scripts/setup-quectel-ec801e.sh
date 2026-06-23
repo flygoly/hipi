@@ -19,4 +19,14 @@ for vidpid in "2c7c:0903" "2c7c:0801"; do
 done
 
 echo "option" > /etc/modules-load.d/hipi-option.conf 2>/dev/null || true
+
+# Install udev rule to release one AT port from ModemManager
+RULES_DST="/etc/udev/rules.d/99-hipi-quectel.rules"
+if [ -f "$(dirname "$0")/packaging/udev/99-hipi-quectel.rules" ]; then
+  cp "$(dirname "$0")/packaging/udev/99-hipi-quectel.rules" "$RULES_DST"
+elif [ -f "/usr/lib/udev/rules.d/99-hipi-quectel.rules" ]; then
+  cp "/usr/lib/udev/rules.d/99-hipi-quectel.rules" "$RULES_DST"
+fi
+udevadm control --reload-rules 2>/dev/null || true
+
 echo "Done. Replug EC801E if /dev/ttyUSB* is missing."

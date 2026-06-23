@@ -280,8 +280,9 @@ def _configure_tty(fd: int, baud: int = _BAUD) -> None:
     attrs[3] = attrs[3] & ~(termios.IXON | termios.IXOFF | termios.IXANY)
     attrs[6][termios.VMIN] = 0
     attrs[6][termios.VTIME] = 0
-    termios.cfsetispeed(attrs, baud)
-    termios.cfsetospeed(attrs, baud)
+    # Python 3.14 removed cfsetispeed / cfsetospeed; set speed fields directly
+    attrs[4] = baud
+    attrs[5] = baud
     termios.tcsetattr(fd, termios.TCSANOW, attrs)
 
 
