@@ -2,7 +2,8 @@
 # One-shot: install udev rule, release AT port from MM, restart services.
 set -euo pipefail
 
-SRC="$(dirname "$0")/packaging/udev/99-hipi-quectel.rules"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SRC="$ROOT/packaging/udev/99-hipi-quectel.rules"
 DST="/etc/udev/rules.d/99-hipi-quectel.rules"
 
 echo "==> Installing udev rule to free one AT port from ModemManager"
