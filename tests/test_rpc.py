@@ -18,6 +18,7 @@ async def test_rpc_roundtrip():
         sock = str(Path(tmp) / "test.sock")
         server = RpcServer(sock)
         server.register("echo", lambda p: {"value": p.get("x")})
+        server._client_added = asyncio.Event()
         await server.start()
 
         reader, writer = await asyncio.open_unix_connection(sock)
@@ -40,6 +41,7 @@ async def test_rpc_broadcast_event():
         sock = str(Path(tmp) / "test.sock")
         server = RpcServer(sock)
         server.register("ping", lambda _p: True)
+        server._client_added = asyncio.Event()
         await server.start()
 
         reader, writer = await asyncio.open_unix_connection(sock)

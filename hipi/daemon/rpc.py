@@ -22,12 +22,19 @@ class RpcServer:
         self._handlers: dict[str, Handler] = {}
         self._clients: set[asyncio.StreamWriter] = set()
         self._server: asyncio.Server | None = None
+        self._client_added: asyncio.Event | None = None
 
     def register(self, method: str, handler: Handler) -> None:
         self._handlers[method] = handler
 
     async def broadcast_event(self, event: str, payload: dict[str, Any]) -> None:
         message = json.dumps({"type": "event", "event": event, "payload": payload}) + "\n"
+        if not self._clients and self._client_added:
+            # wait briefly for a client to connect (tests only)
+            try:
+                await asyncio.wait_for(self._client_added.wait(), timeout=0.5)
+            except asyncio.TimeoutError:
+                pass
         dead: list[asyncio.StreamWriter] = []
         for writer in self._clients:
             try:
@@ -63,6 +70,9 @@ class RpcServer:
         writer: asyncio.StreamWriter,
     ) -> None:
         self._clients.add(writer)
+        if self._client_added:
+            self._client_added.set()
+            self._client_added.clear()
         buffer = ""
         try:
             while True:

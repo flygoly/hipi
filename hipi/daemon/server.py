@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import grp
 import logging
+import os
 import signal
 import sys
 from typing import Any
@@ -180,6 +182,22 @@ class HiPiDaemon:
         except OSError as exc:
             logger.debug("Could not cache AT port: %s", exc)
 
+    @staticmethod
+    def has_dialout() -> bool:
+        try:
+            if os.getuid() == 0:
+                return True
+            all_gids = os.getgroups()
+            for gid in all_gids:
+                try:
+                    if grp.getgrgid(gid).gr_name == "dialout":
+                        return True
+                except KeyError:
+                    continue
+            return False
+        except OSError:
+            return True
+
     def _modem_path(self) -> str | None:
         if self.mm:
             try:
@@ -207,14 +225,35 @@ class HiPiDaemon:
         }
         if not path:
             at_port = self._at.find_port(force_rescan=True)
+            mm_running = self.mm is not None
+            check: list[dict[str, str]] = [
+                {"label": "ModemManager 服务", "ok": str(mm_running)},
+                {"label": "USB 串口", "ok": str(bool(at_port))},
+                {
+                    "label": "dialout 组权限",
+                    "ok": str(self.has_dialout()),
+                },
+            ]
+            hint_parts: list[str] = []
+            if self._modem_access_error:
+                hint_parts.append(str(self._modem_access_error))
+            if not mm_running:
+                hint_parts.append("ModemManager 未运行，请执行: sudo systemctl start ModemManager")
+            if not at_port:
+                hint_parts.append(
+                    "未检测到 USB 串口。请确认 EC801E 已通过 USB passthrough 连接到此虚拟机，"
+                    "然后运行: sudo ./scripts/setup-quectel-ec801e.sh，拔插 USB 并重试。"
+                )
+            if not self.has_dialout():
+                hint_parts.append(
+                    "当前用户不在 dialout 组。请运行: "
+                    "sudo usermod -aG dialout $(whoami)，然后注销并重新登录。"
+                )
             base["modem_present"] = False
-            base["modem_hint"] = self._modem_access_error or "ModemManager 未发现可用模组"
-            if at_port:
-                base["modem_hint"] += f"；检测到 AT 口 {at_port}，请运行: sudo ./scripts/setup-quectel-ec801e.sh"
-            else:
-                base["modem_hint"] += "；请确认 USB 已插入并运行: sudo ./scripts/setup-quectel-ec801e.sh"
+            base["modem_hint"] = "；".join(hint_parts) if hint_parts else "ModemManager 未发现可用模组"
             base["at_port"] = at_port
             base["audio"] = self.audio.has_voice_audio()
+            base["modem_checklist"] = check
             return base
 
         if path.startswith(AT_MODEM_PREFIX):
