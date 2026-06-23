@@ -79,6 +79,7 @@ class ModemDetectPage(QWizardPage):
             f"AT 口: {status.get('at_port') or '—'}"
         )
         self._detected = True
+        self.completeChanged.emit()
 
     def isComplete(self) -> bool:
         return self._detected

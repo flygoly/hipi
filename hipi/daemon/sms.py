@@ -58,7 +58,7 @@ class SmsService:
         if modem_path.startswith(AT_MODEM_PREFIX):
             return BACKEND_AT
         cached = self._backend_cache.get(modem_path)
-        if cached:
+        if cached and cached != BACKEND_MMAT:
             return cached
         if self._mm.has_messaging(modem_path):
             backend = BACKEND_MM
@@ -68,8 +68,13 @@ class SmsService:
             backend = BACKEND_MMAT
         else:
             backend = BACKEND_NONE
+        if cached != backend:
+            logger.info(
+                "SMS backend for %s: %s → %s", modem_path, cached or "none", backend
+            )
+        else:
+            logger.info("SMS backend for %s: %s", modem_path, backend)
         self._backend_cache[modem_path] = backend
-        logger.info("SMS backend for %s: %s", modem_path, backend)
         return backend
 
     def at_port(self) -> str | None:
