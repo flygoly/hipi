@@ -1,15 +1,14 @@
 # HiPi
 
-Orange Pi Ubuntu Desktop 上的 4G 短信与通话桌面应用，优先支持 **Quectel EC801E-CN** USB 一体化模组。
+ARM Ubuntu Desktop 上的 4G 短信与通话桌面应用，优先支持 **Quectel EC801E-CN** USB 一体化模组。
 
-## 快速开始（Orange Pi）
+## 快速开始
 
 ```bash
 git clone https://github.com/flygoly/hipi.git
 cd hipi
-chmod +x scripts/install-orangepi.sh
-./scripts/install-orangepi.sh
-# 注销重登后
+sudo ./scripts/hipi-setup.sh          # 一键环境配置 + USB 绑定
+# 注销重登（使 dialout 组生效）后
 hipi ui
 ```
 
@@ -28,17 +27,25 @@ hipi ui
 
 | 项目 | 要求 |
 |------|------|
-| 单板 | Orange Pi 6 Plus（或其他 ARM64） |
+| 架构 | ARM64（如 Orange Pi、树莓派、VMware Fusion ARM 虚拟机） |
 | 系统 | Ubuntu 24.04 Desktop（GNOME） |
-| 模组 | Quectel EC801E-CN + 含语音/短信的 SIM（ECM/AT 自动适配） |
+| 模组 | Quectel EC801E-CN + 含语音/短信的 SIM（ECM/RNDIS/AT 自动适配） |
 | 服务 | ModemManager、PipeWire |
 
 ## 安装方式
 
-### 一键安装（推荐）
+### 一键配置（推荐）
 
 ```bash
-./scripts/install-orangepi.sh [版本号]   # 默认 0.1.0
+sudo ./scripts/hipi-setup.sh
+```
+
+脚本自动完成：启用 ModemManager debug 模式、安装 udev 规则、释放 AT 端口、绑定 option 驱动、安装 HiPi 并启动守护进程。
+
+### 快速重装（不需拔插 USB）
+
+```bash
+./scripts/quick-reinstall.sh
 ```
 
 ### 开发安装
