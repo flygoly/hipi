@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dbus
 import grp
 import logging
 import os
@@ -16,9 +17,10 @@ from hipi.config import CONFIG_DIR, SOCKET_PATH, ensure_dirs
 from hipi.daemon.audio import AudioRouter
 from hipi.daemon.forward import SmsForwarder
 from hipi.daemon.at_serial import AT_MODEM_PREFIX, AtSerialClient, parse_at_modem_path
+from hipi.daemon.mmat_client import MmAtClient
 from hipi.daemon.modem import ModemManagerClient, ModemManagerError
 from hipi.daemon.rpc import RpcServer
-from hipi.daemon.sms import BACKEND_AT, BACKEND_NONE, SmsService
+from hipi.daemon.sms import BACKEND_AT, BACKEND_MMAT, BACKEND_NONE, SmsService
 from hipi.daemon.voice import VoiceService
 from hipi.db.models import Database, Message
 from hipi.export import export_calls_csv, export_messages_csv
@@ -52,6 +54,7 @@ class HiPiDaemon:
         self.db = Database()
         self.mm: ModemManagerClient | None = None
         self._at = AtSerialClient()
+        self._mmat = MmAtClient(dbus.SystemBus())
         self.audio = AudioRouter()
         self.loop = asyncio.new_event_loop()
         self.rpc = RpcServer(str(SOCKET_PATH))
@@ -140,6 +143,7 @@ class HiPiDaemon:
             on_message_updated=self._on_message_updated,
             on_inbound=self._on_inbound_sms,
             at=self._at,
+            mmat=self._mmat,
         )
         self._voice = VoiceService(
             self.mm, self.db, on_call_event=self._on_call_event, at=self._at
@@ -309,7 +313,7 @@ class HiPiDaemon:
         voice_backend = "mm" if status.voice else (
             "at" if self._voice and self._voice.voice_available(path) else "none"
         )
-        if sms_backend == BACKEND_AT:
+        if sms_backend in (BACKEND_AT, BACKEND_MMAT):
             modem_dict["messaging"] = True
         modem_dict["sms_backend"] = sms_backend
         modem_dict["voice_backend"] = voice_backend

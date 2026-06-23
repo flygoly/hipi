@@ -28,6 +28,7 @@ OUTBOUND_IMPORT_STATES = {SMS_STATE_SENT}
 
 BACKEND_MM = "mm"
 BACKEND_AT = "at"
+BACKEND_MMAT = "mmat"
 BACKEND_NONE = "none"
 
 
@@ -40,15 +41,18 @@ class SmsService:
         on_message_updated: Callable[[Message], None] | None = None,
         on_inbound: Callable[[Message, dict[str, Any], str], None] | None = None,
         at: AtSerialClient | None = None,
+        mmat: "MmAtClient | None" = None,
     ) -> None:
         self._mm = mm
         self._db = db
         self._at = at or AtSerialClient()
+        self._mmat = mmat
         self._on_message = on_message
         self._on_message_updated = on_message_updated
         self._on_inbound = on_inbound
         self._watched_sms: set[str] = set()
         self._backend_cache: dict[str, str] = {}
+        self._mmat_available: bool | None = None
 
     def get_backend(self, modem_path: str) -> str:
         if modem_path.startswith(AT_MODEM_PREFIX):
@@ -60,23 +64,45 @@ class SmsService:
             backend = BACKEND_MM
         elif self._at.find_port():
             backend = BACKEND_AT
+        elif self._probe_mmat(modem_path):
+            backend = BACKEND_MMAT
         else:
             backend = BACKEND_NONE
         self._backend_cache[modem_path] = backend
         logger.info("SMS backend for %s: %s", modem_path, backend)
         return backend
 
+    def at_port(self) -> str | None:
+        p = self._at.active_port() or self._at.find_port()
+        if p:
+            return p
+        # When using MMAT, report MM primary port as the AT channel
+        return None
+
+    def _probe_mmat(self, modem_path: str) -> bool:
+        if self._mmat_available is not None:
+            return self._mmat_available
+        if self._mmat is None:
+            self._mmat_available = False
+            return False
+        try:
+            self._mmat.command(modem_path, "AT", timeout=3)
+            self._mmat_available = True
+            logger.info("MM AT (debug mode) available for %s", modem_path)
+        except Exception:
+            self._mmat_available = False
+            logger.debug("MM AT not available (debug mode may be off)")
+        return self._mmat_available
+
     def sms_available(self, modem_path: str) -> bool:
         return self.get_backend(modem_path) != BACKEND_NONE
-
-    def at_port(self) -> str | None:
-        return self._at.active_port() or self._at.find_port()
 
     def unlock_sim_at(self, pin: str) -> None:
         self._at.unlock_sim(pin)
 
     def reset_backends(self) -> None:
         self._backend_cache.clear()
+        self._mmat_available = None
 
     def sync_from_modem(self, modem_path: str, *, emit_events: bool = False) -> list[Message]:
         backend = self.get_backend(modem_path)
@@ -84,6 +110,8 @@ class SmsService:
             return self._sync_from_mm(modem_path, emit_events=emit_events)
         if backend == BACKEND_AT:
             return self._sync_from_at(modem_path, emit_events=emit_events)
+        if backend == BACKEND_MMAT:
+            return self._sync_from_mmat(modem_path, emit_events=emit_events)
         return []
 
     def _sync_from_mm(self, modem_path: str, *, emit_events: bool) -> list[Message]:
@@ -107,6 +135,50 @@ class SmsService:
         except AtSerialError as exc:
             logger.warning("AT SMS sync failed: %s", exc)
         return imported
+
+    def _sync_from_mmat(self, modem_path: str, *, emit_events: bool) -> list[Message]:
+        if self._mmat is None:
+            return []
+        imported: list[Message] = []
+        try:
+            for item in self._mmat.list_messages(modem_path):
+                msg = self._import_mmat_message(
+                    item, emit_event=emit_events, modem_path=modem_path
+                )
+                if msg:
+                    imported.append(msg)
+        except ModemManagerError as exc:
+            logger.warning("MM AT SMS sync failed: %s", exc)
+        return imported
+
+    def _import_mmat_message(
+        self, item: dict[str, Any], *, emit_event: bool, modem_path: str
+    ) -> Message | None:
+        sms_id = str(item.get("modem_sms_id", ""))
+        if not sms_id:
+            return None
+        if self._db.has_modem_sms(sms_id):
+            return None
+
+        peer = normalize_number(str(item.get("peer", "")))
+        body = str(item.get("body", "") or "")
+        direction = str(item.get("direction", "inbound"))
+        status = str(item.get("status", "received"))
+
+        msg = self._db.add_message(
+            peer=peer,
+            body=body,
+            direction=direction,
+            status=status,
+            modem_path=modem_path,
+            modem_sms_id=sms_id,
+        )
+        if emit_event and self._on_message:
+            self._on_message(msg)
+        if emit_event and direction == "inbound" and self._on_inbound:
+            props = {"Text": body, "Number": peer, "PduType": 0}
+            self._on_inbound(msg, props, modem_path)
+        return msg
 
     def _import_at_message(
         self,
@@ -262,7 +334,27 @@ class SmsService:
             return self._send_sms_at(modem_path, number, text)
         if backend == BACKEND_MM:
             return self._send_sms_mm(modem_path, number, text)
+        if backend == BACKEND_MMAT and self._mmat:
+            return self._send_sms_mmat(modem_path, number, text)
         return {"ok": False, "error": "SMS not available (no MM Messaging or AT port)"}
+
+    def _send_sms_mmat(self, modem_path: str, number: str, text: str) -> dict[str, Any]:
+        if self._mmat is None:
+            return {"ok": False, "error": "MM AT client not available"}
+        result = self._mmat.send_sms(modem_path, number, text)
+        if result.get("ok"):
+            peer = normalize_number(number)
+            if peer:
+                msg = self._db.add_message(
+                    peer=peer,
+                    body=text,
+                    direction="outbound",
+                    status="sent",
+                    modem_path=modem_path,
+                )
+                result["message"] = msg.to_dict()
+                result["backend"] = BACKEND_MMAT
+        return result
 
     def _send_sms_at(self, modem_path: str, number: str, text: str) -> dict[str, Any]:
         peer = normalize_number(number)
